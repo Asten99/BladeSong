@@ -221,20 +221,37 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
 	MSG msg;
 
 	hRes = S_OK;
-	connectiTunes();
-	if (RzSBStart() == RZSB_OK) {					// start up razer switchblade connectivity
-		setAppState(APPSTATE_STARTUP);
-	}
-	else {
-		OutputDebugStringW(L"Razer Switchblade hardware initalization error!\n");
-		PostQuitMessage(0);							// since we cannot connect to switchblade, we quit
-	}
-	while (GetMessage(&msg, nullptr, 0, 0))			// windows application loop
-	{
+	hRes = connectiTunes();
+	if (hRes == S_OK) {
+		if (RzSBStart() == RZSB_OK) {				// start up razer switchblade connectivity
+			setAppState(APPSTATE_STARTUP);
+		}
+		else {
+			int buttonretval;
+			buttonretval = MessageBox(NULL, "Razer Switchblade hardware initalization error!", "Switchblade error", MB_OK | MB_ICONERROR | MB_DEFBUTTON1 | MB_APPLMODAL);
+			OutputDebugStringW(L"Razer Switchblade hardware initalization error!\n");
+			PostQuitMessage(0);							// since we cannot connect to switchblade, we quit
+		}
+		while (GetMessage(&msg, nullptr, 0, 0))			// windows application loop
+		{
 			TranslateMessage(&msg);
 			DispatchMessage(&msg);
+		}
+		disconnectiTunes();
 	}
-	disconnectiTunes();
+	else {
+		int buttonretval;
+		switch (hRes) {
+		case REGDB_E_CLASSNOTREG:
+			buttonretval = MessageBox(NULL, "Apple iTunes is not installed!", "iTunes error", MB_OK | MB_ICONERROR | MB_DEFBUTTON1 | MB_APPLMODAL);
+			break;
+		case CLASS_E_NOAGGREGATION:
+		case E_NOINTERFACE:
+		case E_POINTER:
+		default:
+			buttonretval = MessageBox(NULL, "Unknown error connecting to iTunes!", "iTunes error", MB_OK | MB_ICONERROR | MB_DEFBUTTON1 | MB_APPLMODAL);
+		}
+	}
 	return (hRes);
 }
 
