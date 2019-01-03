@@ -3,17 +3,19 @@
 HINSTANCE hInst;                                // program instance
 IiTunes* myITunes;								// handle to iTunes COM object global variable - needed for touch hanndling callback function 
 short applicationstate;
+playlistData **allSongs;
 
 HRESULT connectiTunes() {
-	CoInitialize(NULL);								// start COM connectivity
+	CoInitialize(NULL);							// start COM connectivity
 	/* attach to iTunes via COM */
 	return (::CoCreateInstance(CLSID_iTunesApp, NULL, CLSCTX_LOCAL_SERVER, IID_IiTunes, (PVOID *)&myITunes));
 }
 
 HRESULT disconnectiTunes() {
-	myITunes->Release();							// release iTunes COM object hold by this app
-	RzSBStop();										// release switchblade control
-	CoUninitialize();								// stop COM connectivity
+	free(allSongs);								// release memory block holding song titles	
+	myITunes->Release();						// release iTunes COM object hold by this app
+	RzSBStop();									// release switchblade control
+	CoUninitialize();							// stop COM connectivity
 	OutputDebugString((LPCSTR)L"\n\niTunes interface disconnected!\n");
 	return S_OK;
 }
@@ -52,18 +54,73 @@ LPCWSTR getTrack_iTunes(IiTunes* iITunes) {		// return current track from iTunes
 	HRESULT errCode;
 	IITTrack* trackInfo;
 	BSTR trackName;
-	_bstr_t bb;
 	iITunes->Release();
 	errCode = iITunes->get_CurrentTrack(&trackInfo);
 	if (errCode == S_OK) {
 		errCode = trackInfo->get_Name(&trackName);
 		if (errCode == S_OK) {
-			bb = trackName;
-			return bb;
+			return (LPCWSTR)trackName;
 		}
 	}
 	return NULL;
 }
+
+HRESULT getPlaylists_iTunes(IiTunes* iITunes, playlistData **allSongs) {
+	HRESULT errCode;
+	IITSource *iTunesLibrary;
+	IITPlaylistCollection *workingPlaylists;
+	IITPlaylist *workingPlaylist;
+	IITTrackCollection *workingTracks;
+	IITTrack *workingTrack;
+	BSTR workingPlayListName;
+	BSTR workingTrackName;
+	long num_playlists;
+	long num_songs_per_playlist;
+	errCode = S_OK;
+	iITunes->Release();
+	errCode = iITunes->get_LibrarySource(&iTunesLibrary);
+	if (errCode != S_OK)
+		return errCode;
+	errCode = iTunesLibrary->get_Playlists(&workingPlaylists);
+	if (errCode != S_OK)
+		return errCode;
+	errCode = workingPlaylists->get_Count(&num_playlists);
+	if (errCode != S_OK)
+		return errCode;
+	allSongs = (playlistData **) malloc(num_playlists * sizeof(playlistData**));
+	for (long i = 0; i < num_playlists; i = i + 1) {
+		allSongs[i] = (playlistData *)malloc(sizeof(playlistData));
+		errCode = workingPlaylists->get_Item(i + 1, &workingPlaylist);
+		if (errCode != S_OK)
+			return errCode;
+		errCode = workingPlaylist->get_Tracks(&workingTracks);
+		if (errCode != S_OK)
+			return errCode;
+		errCode = workingTracks->get_Count(&num_songs_per_playlist);
+		if (errCode != S_OK)
+			return errCode;
+		errCode = workingPlaylist->get_Name(&workingPlayListName);
+		if (errCode != S_OK)
+			return errCode;
+		allSongs[i]->membercount = num_songs_per_playlist;
+		allSongs[i]->name = (LPTSTR)workingPlayListName;
+		allSongs[i]->iTunesObjectRef = workingPlaylist;
+		allSongs[i]->tracks = (trackData **)malloc(num_songs_per_playlist * sizeof(trackData));
+		for (long j = 0; j < num_songs_per_playlist; j = j + 1) { // enum all tracks of this playlist, put it in allsongs[i]->tracks
+				errCode = workingTracks->get_Item(j+1, &workingTrack);
+				if (errCode != S_OK)
+					return errCode;
+				errCode = workingTrack->get_Name(&workingTrackName);
+				if (errCode != S_OK)
+					return errCode;
+				allSongs[i]->tracks[j] = (trackData *)malloc(sizeof(trackData));
+				allSongs[i]->tracks[j]->name = (LPTSTR)workingTrackName;
+				allSongs[i]->tracks[j]->iTunesObjectRef = workingTrack;
+		}
+	}
+	return errCode;
+}
+
 HRESULT padTap(WORD x, WORD y) {				// handles switchblade touch input for player controls
 	HRESULT retval = S_OK;
 	if (x > 4 && x < 275) {						// left --> previous song
@@ -160,18 +217,18 @@ HRESULT showiTunesPlaylistInterface() {
 HRESULT STDMETHODCALLTYPE AppEventHandler(RZSBSDK_EVENTTYPETYPE rzEvent, DWORD wParam, DWORD lParam) {
 	HRESULT retval = S_OK;
 	switch (rzEvent) {
-	case RZSBSDK_EVENT_ACTIVATED:
+	case RZSBSDK_EVENT_ACTIVATED:				// reconnect to iTunes COM object when we are reawakened
 		connectiTunes();
 		setAppState(APPSTATE_STARTUP);
 		break;
-	case RZSBSDK_EVENT_DEACTIVATED:
+	case RZSBSDK_EVENT_DEACTIVATED:				// disconnect from iTunes when SBUI sends us to sleep
 		disconnectiTunes();
 		break;
-	case RZSBSDK_EVENT_CLOSE:
+	case RZSBSDK_EVENT_CLOSE:					// we disconnect from iTunes when the application quits in wWinMain
 		PostQuitMessage(0);
 		break;
 	case RZSBSDK_EVENT_EXIT:
-		PostQuitMessage(0);
+		PostQuitMessage(0);						// we disconnect from iTunes when the application quits in wWinMain
 		break;
 	}
 	return retval;
@@ -255,7 +312,7 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
 	return (hRes);
 }
 
-/* Test function to output to the switchblade touchpad using RzSBRenderBuffer() - i fail to access the bitmap structure, however..*/
+/* Test function to output to the switchblade touchpad using RzSBRenderBuffer() - i fail to access the bitmap structure, however..
 
 void printTextListeRefence(HWND hwnd, long songcount) {
 	HDC hdc;
@@ -279,3 +336,119 @@ void printTextListeRefence(HWND hwnd, long songcount) {
 	RzSBRenderBuffer(RZSBSDK_DISPLAY_WIDGET, &display);
 	DeleteObject(uiimage);
 }
+
+However, this works:
+HDC hdc;
+	HBITMAP uiimage;
+	RECT bounds;
+	bounds.left = 1L;
+	bounds.top = 1L;
+	bounds.right = 800L;
+	bounds.bottom = 1600L;
+	LPCWSTR SongTitles = L"Hello World";
+	hdc = GetDC(hwnd);
+	uiimage = CreateCompatibleBitmap(hdc, 800, 1600);
+	FillRect(hdc, &bounds, (HBRUSH)(COLOR_BACKGROUND));
+	DrawText(hdc, SongTitles, 11, &bounds, DT_LEFT & DT_TOP);
+
+	size_t displayPixels = 800 * 480;
+	RZSBSDK_BUFFERPARAMS display;
+	memset(&display, 0, sizeof(RZSBSDK_BUFFERPARAMS));
+	display.PixelType = RGB565;
+	display.DataSize = (WORD)displayPixels * sizeof(WORD);
+	BitBlt(hdc, 0, 0, 800, 480, hdc, 0, 0, DSTINVERT);
+	RzSBRenderBuffer(RZSBSDK_DISPLAY_WIDGET, &display);
+	DeleteObject(uiimage);
+}
+
+int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
+					 _In_opt_ HINSTANCE hPrevInstance,
+					 _In_ LPWSTR    lpCmdLine,
+					 _In_ int       nCmdShow)
+{
+	UNREFERENCED_PARAMETER(hPrevInstance);
+	UNREFERENCED_PARAMETER(lpCmdLine);
+
+	// TODO: Hier Code einfügen.
+	LPWSTR imagepath;
+	char *sbuibuf;
+	BITMAPINFOHEADER offscreen_bmi;
+	int errcode;
+	imagepath = (LPWSTR)(L"C:\\Users\\asten\\Documents\\Development\\iTunesControl\\iTunesControl\\Background.bmp");
+	CoInitialize(NULL);
+	HRESULT hRes;
+	LoadStringW(hInstance, IDS_APP_TITLE, szTitle, MAX_LOADSTRING);
+	LoadStringW(hInstance, IDC_ITUNESCONTROL, szWindowClass, MAX_LOADSTRING);
+	MyRegisterClass(hInstance);
+	// Anwendungsinitialisierung ausführen:
+	hWnd = InitInstance(hInstance, nCmdShow);
+	HACCEL hAccelTable = LoadAccelerators(hInstance, MAKEINTRESOURCE(IDC_ITUNESCONTROL));
+	MSG msg;
+	int linenum = 20;
+	hRes = ::CoCreateInstance(CLSID_iTunesApp, NULL, CLSCTX_LOCAL_SERVER, IID_IiTunes, (PVOID *)&myITunes);
+	//myITunes->AddRef();
+	if (RzSBStart() == RZSB_OK) {
+		//RzSBSetImageTouchpad(imagepath);
+		hRes = RzSBEnableOSGesture(RZSBSDK_GESTURE_ALL, false);
+		hRes = RzSBGestureSetCallback(reinterpret_cast<TouchpadGestureCallbackFunctionType>(TouchPadHandler));
+		hRes = RzSBAppEventSetCallback(reinterpret_cast<AppEventCallbackType>(AppEventHandler));
+		size_t displayPixels = 800 * 480;
+		void* pixbuf;
+		HANDLE draw_HDIB = GlobalAlloc(GHND, (800*32+31) / 32 * 4 * 480);
+		pixbuf = GlobalLock(draw_HDIB);
+		RZSBSDK_BUFFERPARAMS display;
+		struct {
+			BITMAPINFOHEADER bmiHeader;
+			RGBQUAD bmiColors[256];
+		} bmi;
+		memset(&bmi, 0, sizeof(bmi));
+		bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+		memset(&display, 0, sizeof(RZSBSDK_BUFFERPARAMS));
+		display.PixelType = RGB565;
+		display.DataSize = displayPixels * sizeof(WORD);
+		display.pData = NULL; // set later
+		WNDCLASSEXW sbwcex = {};
+		const wchar_t sbuiwinclassname[] = L"SB UI Window";
+		sbwcex.lpfnWndProc = SBWndProc;
+		sbwcex.hInstance = hInstance;
+		sbwcex.lpszClassName = sbuiwinclassname;
+		RegisterClassExW(&sbwcex);
+		HWND sbhwnd = CreateWindowEx(0, sbuiwinclassname, L"SBUI BladeSong Window", WS_VISIBLE, CW_USEDEFAULT, CW_USEDEFAULT, 800, 480, NULL, NULL, hInstance, NULL);
+		ShowWindow(sbhwnd, nCmdShow);
+		//UpdateWindow(sbhwnd);
+		HDC hdcMemDC;
+		HBITMAP h_offscreen;
+		BITMAP offscreen;
+
+		hdcMemDC = CreateCompatibleDC(NULL);
+		h_offscreen = CreateBitmap(800, 480, 1, 32, pixbuf);
+		SelectObject(hdcMemDC, h_offscreen);
+		TextOut(hdcMemDC, 1, 1, L"Anders", 6);
+		BitBlt(GetDC(hWnd), 0, 0, 800, 480, hdcMemDC, 0, 0, SRCCOPY);  // Test Copy to WinScreen see if works
+		GetObject(h_offscreen, sizeof(BITMAP), &offscreen);
+		offscreen_bmi.biSize = sizeof(BITMAPINFOHEADER);
+		offscreen_bmi.biWidth = offscreen.bmWidth;
+		offscreen_bmi.biHeight = offscreen.bmHeight;
+		offscreen_bmi.biPlanes = 1;
+		offscreen_bmi.biBitCount = 32;
+		offscreen_bmi.biCompression = BI_RGB;
+		offscreen_bmi.biSizeImage = 0;
+		offscreen_bmi.biXPelsPerMeter = 0;
+		offscreen_bmi.biYPelsPerMeter = 0;
+		offscreen_bmi.biClrUsed = 0;
+		offscreen_bmi.biClrImportant = 0;
+		HANDLE HDIB = GlobalAlloc(GHND, (offscreen.bmWidth*(offscreen_bmi.biBitCount) + 31) / 32 * 4 * offscreen.bmHeight);
+		display.pData = (BYTE *)GlobalLock(HDIB);
+
+		//errcode = GetDIBits(hdcMemDC, h_offscreen, 1, 479, display.pData, (BITMAPINFO *)&offscreen_bmi, DIB_RGB_COLORS);
+		GetBitmapBits(h_offscreen, display.DataSize, display.pData);
+		BitBlt(GetDC(hWnd), 0, 0, 800, 480, hdcMemDC, 0, 0, SRCCOPY);  // Test Copy to WinScreen see if works
+		//GetBitmapBits(offscreen, display.DataSize, display.pData);
+		//pColor = ((LPSTR)pBitmapInfo + (WORD)(pBitmapInfo->bmiHeader.biSize)); ?? reicht auch??
+		//GetDIBits(hdcMemDC, offscreen, 0, 480, display.pData, (BITMAPINFO *)&bmi, DIB_RGB_COLORS);
+		//display.pData = (BYTE *)sbuibuf;
+		RzSBRenderBuffer(RZSBSDK_DISPLAY_WIDGET, &display);
+	}
+
+
+*/

@@ -23,6 +23,18 @@ const LPWSTR image_button_controls = (LPWSTR)L"..\\res\\button_controls.png";
 const LPWSTR image_button_list = (LPWSTR)L"..\\res\\button_list.png";
 const LPWSTR image_playlist_songs = (LPWSTR)L"..\\res\\feature_missing.png";
 
+struct trackData {
+	LPTSTR name;
+	IITTrack *iTunesObjectRef;
+};
+
+struct playlistData {
+	LPTSTR name;
+	long membercount;
+	IITPlaylist *iTunesObjectRef;
+	trackData **tracks;
+};
+
 HRESULT STDMETHODCALLTYPE AppEventHandler(RZSBSDK_EVENTTYPETYPE, DWORD, DWORD);
 HRESULT STDMETHODCALLTYPE TouchPadHandler(RZSBSDK_GESTURETYPE, DWORD, WORD, WORD, WORD);
 HRESULT STDMETHODCALLTYPE DynamicKeyHandler(RZSBSDK_DKTYPE, RZSBSDK_KEYSTATETYPE);
@@ -33,6 +45,7 @@ bool next_iTunes(IiTunes*);
 bool prev_iTunes(IiTunes*);
 bool iTunes_song_is_playing(IiTunes*);
 LPCWSTR getTrack_iTunes(IiTunes*);
+HRESULT getPlaylists_iTunes(IiTunes* , playlistData **);
 
 HRESULT padTap(WORD, WORD);
 HRESULT initSwitchbladeControls();
