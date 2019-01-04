@@ -1,9 +1,6 @@
 #include "BladeSong.h"
 
-HINSTANCE hInst;                                // program instance
-IiTunes* myITunes;								// handle to iTunes COM object global variable - needed for touch hanndling callback function 
-short applicationstate;
-playlistData **allSongs;
+
 
 HRESULT connectiTunes() {
 	CoInitialize(NULL);							// start COM connectivity
@@ -74,7 +71,7 @@ HRESULT getPlaylists_iTunes(IiTunes* iITunes, playlistData **allSongs) {
 	IITTrack *workingTrack;
 	BSTR workingPlayListName;
 	BSTR workingTrackName;
-	long num_playlists;
+	num_playlists = 0;
 	long num_songs_per_playlist;
 	errCode = S_OK;
 	iITunes->Release();
@@ -119,6 +116,41 @@ HRESULT getPlaylists_iTunes(IiTunes* iITunes, playlistData **allSongs) {
 		}
 	}
 	return errCode;
+}
+
+HRESULT drawPlaylistOffscreen(playlistData **allSongs, short playlist) { // playlist 0 = playlists, playlist 1 = first playlists, etc..
+	HRESULT retval;
+	long neededlines;
+	const short fontsize = 17;
+	const short spacing = 5;
+	retval = S_OK;
+	if (playlist > num_playlists)
+		return E_FAIL;
+	else {
+		neededlines = allSongs[playlist]->membercount*(fontsize + spacing) + spacing;
+		// allocate memory (moveable, fill with zeros): screenwidth * bpp, align to next 32 bit block * planes * lines
+		o_h_pixbuf = GlobalAlloc(GHND, (800 * 16 + 31) / 32 * 1 * neededlines);
+		// lock the memory, get a pointer to it
+		o_pixbuf = GlobalLock(o_h_pixbuf);
+		// get handle to an offscreen device context
+		hdcOffscreenDC = CreateCompatibleDC(NULL);
+		// create offscreen memory bitmap that will hold the full playlist
+		h_offscreen = CreateBitmap(800, neededlines*(fontsize + spacing), 1, 16, o_pixbuf);
+		// select offscreen image into device context
+		SelectObject(hdcOffscreenDC, h_offscreen);
+		for (long i = 0; i < allSongs[playlist]->membercount; i = i + 1) {
+			TextOut(hdcOffscreenDC, spacing, (spacing+(fontsize+spacing)*(i+1)), allSongs[playlist]->tracks[i]->name, _tcslen(allSongs[playlist]->tracks[i]->name));	//(wchar_t *)
+		}
+	}
+	return retval;
+}
+
+HRESULT renderplaylistUI() {
+	HRESULT retval;
+	BITMAP offscreen;
+
+	retval = S_OK;
+	return retval;
 }
 
 HRESULT padTap(WORD x, WORD y) {				// handles switchblade touch input for player controls
@@ -182,9 +214,10 @@ HRESULT setAppState(short appstate) {
 		applicationstate = APPSTATE_CONTROLS_PAUSE;
 		retval = RzSBSetImageTouchpad(image_pause_controls);
 		break;
-	case APPSTATE_PLAYLIST:
-		applicationstate = APPSTATE_PLAYLIST;
-		retval = RzSBSetImageTouchpad(image_playlist_songs);
+	case APPSTATE_PLAYLIST_START:
+		applicationstate = APPSTATE_PLAYLIST_START;
+		selected_playlist = 0;
+		showiTunesPlaylistInterface(selected_playlist);
 	default:
 		break;
 	}
@@ -205,10 +238,15 @@ HRESULT showiTunesControlInterface() {
 
 /* displays the interface for playlist control on the switchblade touchscreen */
 
-HRESULT showiTunesPlaylistInterface() {
+HRESULT showiTunesPlaylistInterface(short playlist) {
 	HRESULT retval;
 	retval = S_OK;
 	setAppState(APPSTATE_PLAYLIST);
+	selected_playlist = playlist;
+	myITunes->AddRef();
+	getPlaylists_iTunes(myITunes, allSongs);
+	drawPlaylistOffscreen(allSongs, selected_playlist);
+	retval = RzSBSetImageTouchpad(image_playlist_songs);
 	return retval;
 }
 
