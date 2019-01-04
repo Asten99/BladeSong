@@ -62,7 +62,7 @@ LPCWSTR getTrack_iTunes(IiTunes* iITunes) {		// return current track from iTunes
 	return NULL;
 }
 
-HRESULT getPlaylists_iTunes(IiTunes* iITunes, playlistData **allSongs) {
+HRESULT getPlaylists_iTunes(IiTunes* iITunes) {
 	HRESULT errCode;
 	IITSource *iTunesLibrary;
 	IITPlaylistCollection *workingPlaylists;
@@ -118,7 +118,7 @@ HRESULT getPlaylists_iTunes(IiTunes* iITunes, playlistData **allSongs) {
 	return errCode;
 }
 
-HRESULT drawPlaylistOffscreen(playlistData **allSongs, short playlist) { // playlist 0 = playlists, playlist 1 = first playlists, etc..
+HRESULT drawPlaylistOffscreen(short playlist) { // playlist 0 = playlists, playlist 1 = first playlists, etc..
 	HRESULT retval;
 	long neededlines;
 	const short fontsize = 17;
@@ -147,8 +147,34 @@ HRESULT drawPlaylistOffscreen(playlistData **allSongs, short playlist) { // play
 
 HRESULT renderplaylistUI() {
 	HRESULT retval;
-	BITMAP offscreen;
+	BITMAP offscreen;							// Image to be drawn onto SBUI
+	BITMAPINFOHEADER bmi_offscreen;				// Handle to said image
+	HANDLE HDIB;								// handle for SBUI RGB565 image buffer
+	RZSBSDK_BUFFERPARAMS sbuidisplay;			// structure to implement SBUI drawing
+	// TODO: BITBLT to implement scrolling goes here
 
+	GetObject(h_offscreen, sizeof(BITMAP), &offscreen);
+	bmi_offscreen.biSize = sizeof(BITMAPINFOHEADER);
+	bmi_offscreen.biWidth = 480;
+	bmi_offscreen.biHeight = 800;
+	bmi_offscreen.biPlanes = 1;
+	bmi_offscreen.biBitCount = 16;
+	bmi_offscreen.biCompression = BI_RGB;
+	bmi_offscreen.biSizeImage = 0;
+	bmi_offscreen.biXPelsPerMeter = 0;
+	bmi_offscreen.biYPelsPerMeter = 0;
+	bmi_offscreen.biClrUsed = 0;
+	bmi_offscreen.biClrImportant = 0;
+	// Allocate Memory for SBUI pixel Buffer
+	HDIB = GlobalAlloc(GHND, ((offscreen.bmWidth*bmi_offscreen.biBitCount + 31) / 32 * 1 * offscreen.bmHeight));
+	// set up SBUI display structure
+	sbuidisplay.PixelType = RGB565;	
+	sbuidisplay.DataSize = 800 * 480 * sizeof(WORD);
+	sbuidisplay.pData = (BYTE *)GlobalLock(HDIB);
+	// copy the offscreen image into the SBUI display buffer
+	GetBitmapBits(h_offscreen, sbuidisplay.DataSize, sbuidisplay.pData);
+	// let the SBUI draw from its image structure
+	RzSBRenderBuffer(RZSBSDK_DISPLAY_WIDGET, &sbuidisplay);
 	retval = S_OK;
 	return retval;
 }
@@ -244,9 +270,13 @@ HRESULT showiTunesPlaylistInterface(short playlist) {
 	setAppState(APPSTATE_PLAYLIST);
 	selected_playlist = playlist;
 	myITunes->AddRef();
-	getPlaylists_iTunes(myITunes, allSongs);
-	drawPlaylistOffscreen(allSongs, selected_playlist);
-	retval = RzSBSetImageTouchpad(image_playlist_songs);
+	getPlaylists_iTunes(myITunes);
+	OutputDebugStringW(L"\n\n");
+	OutputDebugStringW((LPWSTR)allSongs[0]->name);
+	OutputDebugStringW(L"\n\n");
+	drawPlaylistOffscreen(selected_playlist);
+	renderplaylistUI();
+	//retval = RzSBSetImageTouchpad(image_playlist_songs);
 	return retval;
 }
 
@@ -285,7 +315,7 @@ HRESULT STDMETHODCALLTYPE DynamicKeyHandler(RZSBSDK_DKTYPE DynamicKey, RZSBSDK_K
 			showiTunesControlInterface();
 			break;
 		case RZSBSDK_DK_7:						// show playlist button
-			showiTunesPlaylistInterface();
+			showiTunesPlaylistInterface(0);
 			break;
 		default:
 			break;

@@ -51,7 +51,7 @@ bool next_iTunes(IiTunes*);
 bool prev_iTunes(IiTunes*);
 bool iTunes_song_is_playing(IiTunes*);
 LPCWSTR getTrack_iTunes(IiTunes*);
-HRESULT getPlaylists_iTunes(IiTunes* , playlistData **);
+HRESULT getPlaylists_iTunes(IiTunes*);
 
 HRESULT padTap(WORD, WORD);
 HRESULT initSwitchbladeControls();
