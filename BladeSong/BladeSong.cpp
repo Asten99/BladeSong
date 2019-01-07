@@ -13,7 +13,7 @@ HRESULT disconnectiTunes() {
 	myITunes->Release();						// release iTunes COM object hold by this app
 	RzSBStop();									// release switchblade control
 	CoUninitialize();							// stop COM connectivity
-	OutputDebugString((LPCSTR)L"\n\niTunes interface disconnected!\n");
+	OutputDebugString((LPCTSTR)L"\n\niTunes interface disconnected!\n");
 	return S_OK;
 }
 
@@ -118,6 +118,10 @@ HRESULT getPlaylists_iTunes(IiTunes* iITunes) {
 	return errCode;
 }
 
+COLORREF transl_RGB565(byte r, byte g, byte b) {									// we expect color values in rgb 0..255 range each
+	return ((r/8) << 11) | ((g/4) << 5) | (b/8);									// normalize to 0..31/0..63/0..31 range, then bitshift into WORD for RGB565 conversion, then reurn in COLORREF datatype for compatibility with existing windows draw functions
+}
+
 HRESULT drawPlaylistOffscreen(short playlist) { // playlist 0 = playlists, playlist 1 = first playlists, etc..
 	HRESULT retval;
 	long neededlines;
@@ -127,19 +131,29 @@ HRESULT drawPlaylistOffscreen(short playlist) { // playlist 0 = playlists, playl
 	if (playlist > num_playlists)
 		return E_FAIL;
 	else {
-		neededlines = allSongs[playlist]->membercount*(fontsize + spacing) + spacing;
-		// allocate memory (moveable, fill with zeros): screenwidth * bpp, align to next 32 bit block * planes * lines
-		o_h_pixbuf = GlobalAlloc(GHND, (800 * 16 + 31) / 32 * 1 * neededlines);
-		// lock the memory, get a pointer to it
-		o_pixbuf = GlobalLock(o_h_pixbuf);
-		// get handle to an offscreen device context
-		hdcOffscreenDC = CreateCompatibleDC(NULL);
-		// create offscreen memory bitmap that will hold the full playlist
-		h_offscreen = CreateBitmap(800, neededlines*(fontsize + spacing), 1, 16, o_pixbuf);
-		// select offscreen image into device context
-		SelectObject(hdcOffscreenDC, h_offscreen);
-		for (long i = 0; i < allSongs[playlist]->membercount; i = i + 1) {
-			TextOut(hdcOffscreenDC, spacing, (spacing+(fontsize+spacing)*(i+1)), allSongs[playlist]->tracks[i]->name, _tcslen(allSongs[playlist]->tracks[i]->name));	//(wchar_t *)
+		if (playlist == 0) {		// Needs work - copy only names of playlists
+			neededlines = 480;
+
+		}
+		else {						// copy names of songs of the specified playlist
+			//neededlines = allSongs[playlist]->membercount*(fontsize + spacing) + spacing;
+			neededlines = 480; // we need the offscreen image to be exactly display size  -  make bigger offscreen image, then BitBlt into s second offscreen image that has 800x480
+			// allocate memory (moveable, fill with zeros): screenwidth * bpp, align to next 32 bit block * planes * lines
+			o_h_pixbuf = GlobalAlloc(GHND, (800 * 32 + 31) / 32 * 4 * neededlines);
+			// lock the memory, get a pointer to it
+			o_pixbuf = GlobalLock(o_h_pixbuf);
+			// get handle to an offscreen device context
+			hdcOffscreenDC = CreateCompatibleDC(NULL);
+			// create offscreen memory bitmap that will hold the full playlist
+			//h_offscreen = CreateBitmap(800, neededlines*(fontsize + spacing), 1, 32, o_pixbuf);
+			h_offscreen = CreateBitmap(800, 480, 1, 32, o_pixbuf);
+			// select offscreen image into device context
+			SelectObject(hdcOffscreenDC, h_offscreen);
+			SetTextColor(hdcOffscreenDC, transl_RGB565(0, 0, 255));
+			SetBkColor(hdcOffscreenDC, transl_RGB565(0, 0, 0));
+			for (long i = 0; i < allSongs[playlist]->membercount; i = i + 1) {
+				TextOut(hdcOffscreenDC, spacing, (spacing + (fontsize + spacing)*(i + 1)), allSongs[playlist]->tracks[i]->name, _tcslen((allSongs[playlist]->tracks[i]->name)));	//(wchar_t *)  // find a way to cap string lenght correctly - not bigger than strlen, not bigger than screen size
+			}
 		}
 	}
 	return retval;
@@ -147,18 +161,15 @@ HRESULT drawPlaylistOffscreen(short playlist) { // playlist 0 = playlists, playl
 
 HRESULT renderplaylistUI() {
 	HRESULT retval;
-	BITMAP offscreen;							// Image to be drawn onto SBUI
-	BITMAPINFOHEADER bmi_offscreen;				// Handle to said image
-	HANDLE HDIB;								// handle for SBUI RGB565 image buffer
-	RZSBSDK_BUFFERPARAMS sbuidisplay;			// structure to implement SBUI drawing
-	// TODO: BITBLT to implement scrolling goes here
 
+	// TODO: BITBLT to implement scrolling goes here
+	memset(&sbuidisplay, 0, sizeof(RZSBSDK_BUFFERPARAMS));
 	GetObject(h_offscreen, sizeof(BITMAP), &offscreen);
 	bmi_offscreen.biSize = sizeof(BITMAPINFOHEADER);
-	bmi_offscreen.biWidth = 480;
-	bmi_offscreen.biHeight = 800;
+	bmi_offscreen.biWidth = 800;
+	bmi_offscreen.biHeight = 480;
 	bmi_offscreen.biPlanes = 1;
-	bmi_offscreen.biBitCount = 16;
+	bmi_offscreen.biBitCount = 32;
 	bmi_offscreen.biCompression = BI_RGB;
 	bmi_offscreen.biSizeImage = 0;
 	bmi_offscreen.biXPelsPerMeter = 0;
@@ -166,7 +177,7 @@ HRESULT renderplaylistUI() {
 	bmi_offscreen.biClrUsed = 0;
 	bmi_offscreen.biClrImportant = 0;
 	// Allocate Memory for SBUI pixel Buffer
-	HDIB = GlobalAlloc(GHND, ((offscreen.bmWidth*bmi_offscreen.biBitCount + 31) / 32 * 1 * offscreen.bmHeight));
+	HDIB = GlobalAlloc(GHND, ((offscreen.bmWidth*bmi_offscreen.biBitCount + 31) / 32 * 4 * offscreen.bmHeight));
 	// set up SBUI display structure
 	sbuidisplay.PixelType = RGB565;	
 	sbuidisplay.DataSize = 800 * 480 * sizeof(WORD);
@@ -242,7 +253,7 @@ HRESULT setAppState(short appstate) {
 		break;
 	case APPSTATE_PLAYLIST_START:
 		applicationstate = APPSTATE_PLAYLIST_START;
-		selected_playlist = 0;
+		selected_playlist = 1;
 		showiTunesPlaylistInterface(selected_playlist);
 	default:
 		break;
@@ -267,15 +278,15 @@ HRESULT showiTunesControlInterface() {
 HRESULT showiTunesPlaylistInterface(short playlist) {
 	HRESULT retval;
 	retval = S_OK;
-	setAppState(APPSTATE_PLAYLIST);
-	selected_playlist = playlist;
+//	setAppState(APPSTATE_PLAYLIST);
+	selected_playlist = 1;
 	myITunes->AddRef();
 	getPlaylists_iTunes(myITunes);
-	OutputDebugStringW(L"\n\n");
-	OutputDebugStringW((LPWSTR)allSongs[0]->name);
-	OutputDebugStringW(L"\n\n");
 	drawPlaylistOffscreen(selected_playlist);
 	renderplaylistUI();
+	OutputDebugStringW(L"\n\n");
+	OutputDebugStringW((LPWSTR)allSongs[0]->tracks[0]->name);
+	OutputDebugStringW(L"\n\n");
 	//retval = RzSBSetImageTouchpad(image_playlist_songs);
 	return retval;
 }
@@ -315,7 +326,7 @@ HRESULT STDMETHODCALLTYPE DynamicKeyHandler(RZSBSDK_DKTYPE DynamicKey, RZSBSDK_K
 			showiTunesControlInterface();
 			break;
 		case RZSBSDK_DK_7:						// show playlist button
-			showiTunesPlaylistInterface(0);
+			showiTunesPlaylistInterface(1);
 			break;
 		default:
 			break;
@@ -353,7 +364,7 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
 		}
 		else {
 			int buttonretval;
-			buttonretval = MessageBox(NULL, "Razer Switchblade hardware initalization error!", "Switchblade error", MB_OK | MB_ICONERROR | MB_DEFBUTTON1 | MB_APPLMODAL);
+			buttonretval = MessageBox(NULL, (LPCWSTR)L"Razer Switchblade hardware initalization error!", (LPCWSTR)L"Switchblade error", MB_OK | MB_ICONERROR | MB_DEFBUTTON1 | MB_APPLMODAL);
 			OutputDebugStringW(L"Razer Switchblade hardware initalization error!\n");
 			PostQuitMessage(0);							// since we cannot connect to switchblade, we quit
 		}
@@ -368,13 +379,13 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
 		int buttonretval;
 		switch (hRes) {
 		case REGDB_E_CLASSNOTREG:
-			buttonretval = MessageBox(NULL, "Apple iTunes is not installed!", "iTunes error", MB_OK | MB_ICONERROR | MB_DEFBUTTON1 | MB_APPLMODAL);
+			buttonretval = MessageBox(NULL, (LPCWSTR)L"Apple iTunes is not installed!", (LPCWSTR)L"iTunes error", MB_OK | MB_ICONERROR | MB_DEFBUTTON1 | MB_APPLMODAL);
 			break;
 		case CLASS_E_NOAGGREGATION:
 		case E_NOINTERFACE:
 		case E_POINTER:
 		default:
-			buttonretval = MessageBox(NULL, "Unknown error connecting to iTunes!", "iTunes error", MB_OK | MB_ICONERROR | MB_DEFBUTTON1 | MB_APPLMODAL);
+			buttonretval = MessageBox(NULL, (LPCWSTR)L"Unknown error connecting to iTunes!", (LPCWSTR)L"iTunes error", MB_OK | MB_ICONERROR | MB_DEFBUTTON1 | MB_APPLMODAL);
 		}
 	}
 	return (hRes);

@@ -68,3 +68,7 @@ HDC hdcOffscreenDC;								// device context handle for offscreen rendering of t
 HBITMAP h_offscreen;							// bitmap handle for the offscreen image
 void *o_pixbuf;									// memory for the actual offscreen image
 HANDLE o_h_pixbuf;								// handle to said memory
+BITMAP offscreen;							// Image to be drawn onto SBUI
+BITMAPINFOHEADER bmi_offscreen;				// Handle to said image
+HANDLE HDIB;								// handle for SBUI RGB565 image buffer
+RZSBSDK_BUFFERPARAMS sbuidisplay;			// structure to implement SBUI drawing
