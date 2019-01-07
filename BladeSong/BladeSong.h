@@ -31,13 +31,13 @@ long num_playlists;
 
 struct trackData {
 	LPTSTR name;
-	IITTrack *iTunesObjectRef;
+	long TrackDatabaseID;
 };
 
 struct playlistData {
 	LPTSTR name;
 	long membercount;
-	IITPlaylist *iTunesObjectRef;
+	long PlaylistID;
 	trackData **tracks;
 };
 

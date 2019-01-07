@@ -71,8 +71,12 @@ HRESULT getPlaylists_iTunes(IiTunes* iITunes) {
 	IITTrack *workingTrack;
 	BSTR workingPlayListName;
 	BSTR workingTrackName;
-	num_playlists = 0;
 	long num_songs_per_playlist;
+	long workingplaylistID;
+	long workingtrackID;
+	workingplaylistID = 0;
+	workingtrackID = 0;
+	num_playlists = 0;
 	errCode = S_OK;
 	iITunes->Release();
 	errCode = iITunes->get_LibrarySource(&iTunesLibrary);
@@ -99,9 +103,12 @@ HRESULT getPlaylists_iTunes(IiTunes* iITunes) {
 		errCode = workingPlaylist->get_Name(&workingPlayListName);
 		if (errCode != S_OK)
 			return errCode;
+		errCode = workingPlaylist->get_PlaylistID(&workingplaylistID);
+		if (errCode != S_OK)
+			return errCode;
 		allSongs[i]->membercount = num_songs_per_playlist;
 		allSongs[i]->name = (LPTSTR)workingPlayListName;
-		allSongs[i]->iTunesObjectRef = workingPlaylist;
+		allSongs[i]->PlaylistID = workingplaylistID;
 		allSongs[i]->tracks = (trackData **)malloc(num_songs_per_playlist * sizeof(trackData));
 		for (long j = 0; j < num_songs_per_playlist; j = j + 1) { // enum all tracks of this playlist, put it in allsongs[i]->tracks
 				errCode = workingTracks->get_Item(j+1, &workingTrack);
@@ -110,11 +117,19 @@ HRESULT getPlaylists_iTunes(IiTunes* iITunes) {
 				errCode = workingTrack->get_Name(&workingTrackName);
 				if (errCode != S_OK)
 					return errCode;
+				errCode = workingTrack->get_TrackID(&workingtrackID);
+				if (errCode != S_OK)
+					return errCode;
 				allSongs[i]->tracks[j] = (trackData *)malloc(sizeof(trackData));
 				allSongs[i]->tracks[j]->name = (LPTSTR)workingTrackName;
-				allSongs[i]->tracks[j]->iTunesObjectRef = workingTrack;
+				allSongs[i]->tracks[j]->TrackDatabaseID = workingtrackID;
+				workingTrack->Release();
 		}
+		workingTracks->Release();
+		workingPlaylist->Release();
 	}
+	workingPlaylists->Release();
+	iTunesLibrary->Release();
 	return errCode;
 }
 
@@ -127,6 +142,7 @@ HRESULT drawPlaylistOffscreen(short playlist) { // playlist 0 = playlists, playl
 	long neededlines;
 	const short fontsize = 17;
 	const short spacing = 5;
+	HFONT hFont;
 	retval = S_OK;
 	if (playlist > num_playlists)
 		return E_FAIL;
@@ -150,10 +166,13 @@ HRESULT drawPlaylistOffscreen(short playlist) { // playlist 0 = playlists, playl
 			// select offscreen image into device context
 			SelectObject(hdcOffscreenDC, h_offscreen);
 			SetTextColor(hdcOffscreenDC, transl_RGB565(0, 0, 255));
+			hFont = CreateFont(25, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_OUTLINE_PRECIS, CLIP_DEFAULT_PRECIS, ANTIALIASED_QUALITY, DEFAULT_PITCH, TEXT("razer regular"));
+			SelectObject(hdcOffscreenDC, hFont);
 			SetBkColor(hdcOffscreenDC, transl_RGB565(0, 0, 0));
 			for (long i = 0; i < allSongs[playlist]->membercount; i = i + 1) {
 				TextOut(hdcOffscreenDC, spacing, (spacing + (fontsize + spacing)*(i + 1)), allSongs[playlist]->tracks[i]->name, _tcslen((allSongs[playlist]->tracks[i]->name)));	//(wchar_t *)  // find a way to cap string lenght correctly - not bigger than strlen, not bigger than screen size
 			}
+			DeleteObject(hFont);
 		}
 	}
 	return retval;
