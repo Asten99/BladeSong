@@ -3,7 +3,8 @@
 
 
 HRESULT connectiTunes() {
-	CoInitialize(NULL);							// start COM connectivity
+	//CoInitialize(NULL);							// start COM connectivity
+	CoInitializeEx(NULL, COINIT_MULTITHREADED | COINIT_SPEED_OVER_MEMORY);
 	/* attach to iTunes via COM */
 	return (::CoCreateInstance(CLSID_iTunesApp, NULL, CLSCTX_LOCAL_SERVER, IID_IiTunes, (PVOID *)&myITunes));
 }
@@ -47,6 +48,18 @@ bool iTunes_song_is_playing(IiTunes* iITunes) {	// returns true if a song is cur
 	return false;								// song either not playing or error communicating with iTunes COM object
 }
 
+bool play_iTunes_song(IiTunes* iITunes, long playlist, long track) {
+	IITTrack *track_to_play;
+	HRESULT errCode = S_OK;
+	iITunes->Release();
+	errCode = iITunes->GetITObjectByID(allSongs[playlist]->SourceID, allSongs[playlist]->PlaylistID, allSongs[playlist]->tracks[track]->TrackID, allSongs[playlist]->SourceID, (IITObject**)&track_to_play);
+	errCode = track_to_play->Play();
+	if (errCode == S_OK)
+		return true;
+	else
+		return false;
+}
+
 LPCWSTR getTrack_iTunes(IiTunes* iITunes) {		// return current track from iTunes COM object as a string
 	HRESULT errCode;
 	IITTrack* trackInfo;
@@ -74,12 +87,19 @@ HRESULT getPlaylists_iTunes(IiTunes* iITunes) {
 	long num_songs_per_playlist;
 	long workingplaylistID;
 	long workingtrackID;
+	long workingtrackDatabaseID;
+	long workingSourceID;
 	workingplaylistID = 0;
 	workingtrackID = 0;
+	workingtrackDatabaseID = 0;
+	workingSourceID = 0;
 	num_playlists = 0;
 	errCode = S_OK;
 	iITunes->Release();
 	errCode = iITunes->get_LibrarySource(&iTunesLibrary);
+	if (errCode != S_OK)
+		return errCode;
+	errCode = iTunesLibrary->get_SourceID(&workingSourceID);
 	if (errCode != S_OK)
 		return errCode;
 	errCode = iTunesLibrary->get_Playlists(&workingPlaylists);
@@ -109,8 +129,10 @@ HRESULT getPlaylists_iTunes(IiTunes* iITunes) {
 		allSongs[i]->membercount = num_songs_per_playlist;
 		allSongs[i]->name = (LPTSTR)workingPlayListName;
 		allSongs[i]->PlaylistID = workingplaylistID;
+		allSongs[i]->SourceID = workingSourceID;
 		allSongs[i]->tracks = (trackData **)malloc(num_songs_per_playlist * sizeof(trackData));
-		for (long j = 0; j < num_songs_per_playlist; j = j + 1) { // enum all tracks of this playlist, put it in allsongs[i]->tracks
+		for (long j = 0; j < num_songs_per_playlist; j = j + 1) { 
+			/* enumerate all tracks of this playlist, put it in allsongs[i]->tracks */
 				errCode = workingTracks->get_Item(j+1, &workingTrack);
 				if (errCode != S_OK)
 					return errCode;
@@ -120,9 +142,11 @@ HRESULT getPlaylists_iTunes(IiTunes* iITunes) {
 				errCode = workingTrack->get_TrackID(&workingtrackID);
 				if (errCode != S_OK)
 					return errCode;
+				errCode = workingTrack->get_TrackDatabaseID(&workingtrackDatabaseID);
 				allSongs[i]->tracks[j] = (trackData *)malloc(sizeof(trackData));
 				allSongs[i]->tracks[j]->name = (LPTSTR)workingTrackName;
-				allSongs[i]->tracks[j]->TrackDatabaseID = workingtrackID;
+				allSongs[i]->tracks[j]->TrackID = workingtrackID;
+				allSongs[i]->tracks[j]->TrackDatabaseID = workingtrackDatabaseID;
 				workingTrack->Release();
 		}
 		workingTracks->Release();
@@ -133,27 +157,26 @@ HRESULT getPlaylists_iTunes(IiTunes* iITunes) {
 	return errCode;
 }
 
-COLORREF transl_RGB565(byte r, byte g, byte b) {									// we expect color values in rgb 0..255 range each
-	return ((r/8) << 11) | ((g/4) << 5) | (b/8);									// normalize to 0..31/0..63/0..31 range, then bitshift into WORD for RGB565 conversion, then reurn in COLORREF datatype for compatibility with existing windows draw functions
+COLORREF transl_RGB565(byte r, byte g, byte b) {// we expect color values in rgb 0..255 range each
+	return ((r/8) << 11) | ((g/4) << 5) | (b/8);// normalize to 0..31/0..63/0..31 range, then bitshift into WORD for RGB565 conversion, then reurn in COLORREF datatype for compatibility with existing windows draw functions
 }
 
-HRESULT drawPlaylistOffscreen(short playlist) { // playlist 0 = playlists, playlist 1 = first playlists, etc..
+HRESULT drawPlaylistOffscreen(short playlist) { // playlist 0 = list of playlists, playlist 1 = first playlists, etc..
 	HRESULT retval;
 	long neededlines;
-	const short fontsize = 17;
-	const short spacing = 5;
 	HFONT hFont;
+	size_t chars_per_line = 32;
 	retval = S_OK;
 	if (playlist > num_playlists)
 		return E_FAIL;
 	else {
-		if (playlist == 0) {		// Needs work - copy only names of playlists
-			neededlines = 480;
+		if (playlist == 0) {					// Needs work - copy only names of playlists
+			neededlines = 12;
 
 		}
-		else {						// copy names of songs of the specified playlist
-			//neededlines = allSongs[playlist]->membercount*(fontsize + spacing) + spacing;
-			neededlines = 480; // we need the offscreen image to be exactly display size  -  make bigger offscreen image, then BitBlt into s second offscreen image that has 800x480
+		else {									// copy names of songs of the specified playlist
+			neededlines = allSongs[playlist]->membercount*(fontsize + spacing) + spacing;
+			// we need the offscreen image to be exactly display size  -  make bigger offscreen image, then BitBlt into s second offscreen image that has 800x480
 			// allocate memory (moveable, fill with zeros): screenwidth * bpp, align to next 32 bit block * planes * lines
 			o_h_pixbuf = GlobalAlloc(GHND, (800 * 32 + 31) / 32 * 4 * neededlines);
 			// lock the memory, get a pointer to it
@@ -161,16 +184,18 @@ HRESULT drawPlaylistOffscreen(short playlist) { // playlist 0 = playlists, playl
 			// get handle to an offscreen device context
 			hdcOffscreenDC = CreateCompatibleDC(NULL);
 			// create offscreen memory bitmap that will hold the full playlist
-			//h_offscreen = CreateBitmap(800, neededlines*(fontsize + spacing), 1, 32, o_pixbuf);
-			h_offscreen = CreateBitmap(800, 480, 1, 32, o_pixbuf);
+			h_offscreen = CreateBitmap(800, neededlines, 1, 32, o_pixbuf);
+			
 			// select offscreen image into device context
 			SelectObject(hdcOffscreenDC, h_offscreen);
-			SetTextColor(hdcOffscreenDC, transl_RGB565(0, 0, 255));
+			SetTextColor(hdcOffscreenDC, transl_RGB565(212, 175, 55));
 			hFont = CreateFont(25, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_OUTLINE_PRECIS, CLIP_DEFAULT_PRECIS, ANTIALIASED_QUALITY, DEFAULT_PITCH, TEXT("razer regular"));
 			SelectObject(hdcOffscreenDC, hFont);
 			SetBkColor(hdcOffscreenDC, transl_RGB565(0, 0, 0));
+			// lenght of a song name in the memory structutre: _tcslen((allSongs[playlist]->tracks[i]->name
 			for (long i = 0; i < allSongs[playlist]->membercount; i = i + 1) {
-				TextOut(hdcOffscreenDC, spacing, (spacing + (fontsize + spacing)*(i + 1)), allSongs[playlist]->tracks[i]->name, _tcslen((allSongs[playlist]->tracks[i]->name)));	//(wchar_t *)  // find a way to cap string lenght correctly - not bigger than strlen, not bigger than screen size
+				chars_per_line = _tcslen(allSongs[playlist]->tracks[i]->name);
+				TextOut(hdcOffscreenDC, spacing, (spacing + (fontsize + spacing)*(i + 1)), allSongs[playlist]->tracks[i]->name , chars_per_line>32?32: chars_per_line);	//(wchar_t *)  // find a way to cap string lenght correctly - not bigger than strlen, not bigger than screen size
 			}
 			DeleteObject(hFont);
 		}
@@ -179,11 +204,30 @@ HRESULT drawPlaylistOffscreen(short playlist) { // playlist 0 = playlists, playl
 }
 
 HRESULT renderplaylistUI() {
-	HRESULT retval;
-
-	// TODO: BITBLT to implement scrolling goes here
+	HRESULT retval;								// for error handling
+	HANDLE o_h_pixbuf_viewport;					// handle to the copy of the view portion of the offscreen image we want to draw onto the SwitchBlade display
+	void *o_pixbuf_viewport;					// pointer to memory region of the image view portion copy to later draw onto the SwitchBlade display
+	HBITMAP h_offscreen_viewport;				// Bitmap Handle to the view portion copy image
+	BITMAP offscreen_viewport;					// Image to be drawn onto SBUI
+	long neededlines;
+	HANDLE HDIB;								// handle for SBUI RGB565 image buffer
+	HDC hdcOffscreenviewportDC;					// Create device context handle for the viewport image
+	
+	/* BITBLT to implement scrolling is here;
+	   create second image the exact size of the SBUI display to copy scrolled view portion of the offscreen image into */
+	neededlines = 480;						// we need to match the SBUI display
+	hdcOffscreenviewportDC = CreateCompatibleDC(NULL);
+	/* allocate memory for the view portion copy of the offscreen image we drew in drawPlaylistOffscreen(short playlist) and create the corresponding BITMAP object*/
+	o_h_pixbuf_viewport = GlobalAlloc(GHND, (800 * 32 + 31) / 32 * 4 * neededlines);
+	o_pixbuf_viewport = GlobalLock(o_h_pixbuf);
+	h_offscreen_viewport = CreateBitmap(800, 480, 1, 32, o_pixbuf_viewport);
+	/* select the offscreen view portion buffer into its device context */
+	SelectObject(hdcOffscreenviewportDC, h_offscreen_viewport);
+	/* copy our viw portion of the offscreen image into our viewport image buffer */
+	BitBlt(hdcOffscreenviewportDC, 0, 0, 800, 480, hdcOffscreenDC, 0, scroll_offset, SRCCOPY);
+	/* prepare the SBUI memory buffer to hold the image data we want to draw on the display */
 	memset(&sbuidisplay, 0, sizeof(RZSBSDK_BUFFERPARAMS));
-	GetObject(h_offscreen, sizeof(BITMAP), &offscreen);
+	GetObject(h_offscreen_viewport, sizeof(BITMAP), &offscreen_viewport);
 	bmi_offscreen.biSize = sizeof(BITMAPINFOHEADER);
 	bmi_offscreen.biWidth = 800;
 	bmi_offscreen.biHeight = 480;
@@ -196,13 +240,13 @@ HRESULT renderplaylistUI() {
 	bmi_offscreen.biClrUsed = 0;
 	bmi_offscreen.biClrImportant = 0;
 	// Allocate Memory for SBUI pixel Buffer
-	HDIB = GlobalAlloc(GHND, ((offscreen.bmWidth*bmi_offscreen.biBitCount + 31) / 32 * 4 * offscreen.bmHeight));
+	HDIB = GlobalAlloc(GHND, ((offscreen_viewport.bmWidth*bmi_offscreen.biBitCount + 31) / 32 * 4 * offscreen_viewport.bmHeight));
 	// set up SBUI display structure
 	sbuidisplay.PixelType = RGB565;	
 	sbuidisplay.DataSize = 800 * 480 * sizeof(WORD);
 	sbuidisplay.pData = (BYTE *)GlobalLock(HDIB);
-	// copy the offscreen image into the SBUI display buffer
-	GetBitmapBits(h_offscreen, sbuidisplay.DataSize, sbuidisplay.pData);
+	// copy the offscreen viewport image buffer into the SBUI display buffer
+	GetBitmapBits(h_offscreen_viewport, sbuidisplay.DataSize, sbuidisplay.pData);
 	// let the SBUI draw from its image structure
 	RzSBRenderBuffer(RZSBSDK_DISPLAY_WIDGET, &sbuidisplay);
 	retval = S_OK;
@@ -237,6 +281,59 @@ HRESULT padTap(WORD x, WORD y) {				// handles switchblade touch input for playe
 	return retval;
 }
 
+HRESULT padFlick(WORD direction) {				// handles switchblade input for scrolling in the playlists
+	HRESULT retval;
+	retval = S_OK;
+	short scrolled = 0;
+	float scrolllength = 400;					// how much to scroll with one flick
+	short SBUI_length = 480;
+	float scroll_increment;
+	float scroll_increment_fas = 12;
+	long offscreen_imagelength;
+	BITMAP offscreen;
+	GetObject(h_offscreen, sizeof(BITMAP), &offscreen);
+	offscreen_imagelength = offscreen.bmHeight;
+	scroll_increment = scroll_increment_fas;
+	switch (direction) {						// decide in which direction to scroll
+	case RZSBSDK_DIRECTION_UP:					// only scroll down to the end of the list
+		while (((scroll_offset + scroll_increment) <= (offscreen_imagelength - SBUI_length)) && ((scrolled + scroll_increment) <= scrolllength)) {
+			scroll_offset = scroll_offset + (long)scroll_increment;
+			scrolled = scrolled + (short)scroll_increment;
+			/* scroll slower at the end of the scroll - scale the scrolling speed/scroll increments - scrolled should at this point never be 0 */
+			scroll_increment = scroll_increment_fas - ((scrolled / scrolllength) * scroll_increment_fas)+1;
+			renderplaylistUI();					// redraw SBUI
+			Sleep(1);
+		}
+		break;
+	case RZSBSDK_DIRECTION_DOWN:				// only scroll till the very top
+		while ((scroll_offset > 0) && ((scrolled + scroll_increment) <= scrolllength)) {
+			scroll_offset = scroll_offset - (long)scroll_increment;
+			scrolled = scrolled + (short)scroll_increment;
+			/* scroll slower at the end of the scroll - scale the scrolling speed/scroll increments */
+			scroll_increment = scroll_increment_fas - ((scrolled / scrolllength) * scroll_increment_fas)+1;
+			renderplaylistUI();					// redraw SBUI
+			/* scroll slower at the end of the scroll - get slower in the third quarter of the scroll, even slower in the fourth quarter */
+			Sleep(1);
+		}
+		break;
+	default:
+		break;
+	}
+	return retval;
+}
+
+HRESULT play_song_on_playlist(long playlist, WORD y_coordinates) {
+	HRESULT retval = S_OK;
+	long true_y = scroll_offset + y_coordinates - spacing - 72;
+	if (true_y >= 0) {
+		long songnumber = true_y / (45);
+		play_iTunes_song(myITunes, (long)playlist, songnumber);
+		OutputDebugStringW(L"\n");
+		OutputDebugStringW((LPWSTR)allSongs[playlist]->tracks[songnumber]->name);
+	}
+	return retval;
+}
+
 HRESULT initSwitchbladeControls() {				// paint common user interface
 	HRESULT retval = S_OK;
 	/* set up the buttons for the control and playlist interface as well as an exit button */
@@ -246,7 +343,7 @@ HRESULT initSwitchbladeControls() {				// paint common user interface
 	/* disable handing over touchpad gestures to OS - disables "mouse" functionality */
 	retval = RzSBEnableOSGesture(RZSBSDK_GESTURE_ALL, false);
 	/* register callback function to handle touch input to application */
-	retval = RzSBGestureSetCallback(reinterpret_cast<TouchpadGestureCallbackFunctionType>(TouchPadHandler));
+	retval = RzSBGestureSetCallback(reinterpret_cast<TouchpadGestureCallbackFunctionType>(TouchPadHandler_Controls));
 	/* register callback function to handle button presses */
 	retval = RzSBDynamicKeySetCallback(reinterpret_cast<DynamicKeyCallbackFunctionType>(DynamicKeyHandler));
 	/* register callback function to handle application lifecycle events */
@@ -273,7 +370,9 @@ HRESULT setAppState(short appstate) {
 	case APPSTATE_PLAYLIST_START:
 		applicationstate = APPSTATE_PLAYLIST_START;
 		selected_playlist = 1;
-		showiTunesPlaylistInterface(selected_playlist);
+		scroll_offset = 0;
+		showiTunesPlaylistInterface();
+		break;
 	default:
 		break;
 	}
@@ -289,24 +388,22 @@ HRESULT showiTunesControlInterface() {
 		retval = setAppState(APPSTATE_CONTROLS_PAUSE);
 	else
 		retval = setAppState(APPSTATE_CONTROLS_PLAY);
+	retval = RzSBGestureSetCallback(reinterpret_cast<TouchpadGestureCallbackFunctionType>(TouchPadHandler_Controls));
 	return retval;
 }
 
 /* displays the interface for playlist control on the switchblade touchscreen */
 
-HRESULT showiTunesPlaylistInterface(short playlist) {
+HRESULT showiTunesPlaylistInterface() {
 	HRESULT retval;
 	retval = S_OK;
-//	setAppState(APPSTATE_PLAYLIST);
-	selected_playlist = 1;
+
 	myITunes->AddRef();
 	getPlaylists_iTunes(myITunes);
 	drawPlaylistOffscreen(selected_playlist);
 	renderplaylistUI();
-	OutputDebugStringW(L"\n\n");
-	OutputDebugStringW((LPWSTR)allSongs[0]->tracks[0]->name);
-	OutputDebugStringW(L"\n\n");
-	//retval = RzSBSetImageTouchpad(image_playlist_songs);
+//	retval = RzSBSetImageTouchpad(image_playlist_songs);    // maybe use for loading screen - query loading thread for playlists if it is finished?
+	retval = RzSBGestureSetCallback(reinterpret_cast<TouchpadGestureCallbackFunctionType>(TouchPadHandler_Playlist));
 	return retval;
 }
 
@@ -342,10 +439,10 @@ HRESULT STDMETHODCALLTYPE DynamicKeyHandler(RZSBSDK_DKTYPE DynamicKey, RZSBSDK_K
 			PostQuitMessage(0);
 			break;
 		case RZSBSDK_DK_6:						// show iTunes controls button
-			showiTunesControlInterface();
+			setAppState(APPSTATE_STARTUP);
 			break;
 		case RZSBSDK_DK_7:						// show playlist button
-			showiTunesPlaylistInterface(1);
+			setAppState(APPSTATE_PLAYLIST_START);
 			break;
 		default:
 			break;
@@ -355,11 +452,29 @@ HRESULT STDMETHODCALLTYPE DynamicKeyHandler(RZSBSDK_DKTYPE DynamicKey, RZSBSDK_K
 
 /* Generic function to handle touchpad inpuit on the switchblade ui. */
 
-HRESULT STDMETHODCALLTYPE TouchPadHandler(RZSBSDK_GESTURETYPE gesturetype, DWORD touchpoints, WORD x, WORD y, WORD z) {
+HRESULT STDMETHODCALLTYPE TouchPadHandler_Controls(RZSBSDK_GESTURETYPE gesturetype, DWORD touchpoints, WORD x, WORD y, WORD z) {
 	HRESULT retval = S_OK;
 	switch (gesturetype) {
 	case RZSBSDK_GESTURE_TAP:					// since we are only interested in taps by the user, we only check for the tap gesture
 		retval = padTap(x, y);					// actual implementation of what happens when the user taps is done here, depening on the application state
+		break;
+	default:
+		break;
+	}
+	return retval;
+}
+
+HRESULT STDMETHODCALLTYPE TouchPadHandler_Playlist(RZSBSDK_GESTURETYPE gesturetype, DWORD touchpoints, WORD x, WORD y, WORD z) {
+	HRESULT retval = S_OK;
+	switch (gesturetype) {
+	case RZSBSDK_GESTURE_FLICK:
+		retval = padFlick(z);					// call scrolling function
+		break;
+	case RZSBSDK_GESTURE_PRESS:
+												// stop scrolling upon pad press
+		break;
+	case RZSBSDK_GESTURE_TAP:					// play song upon tapping on it
+		retval = play_song_on_playlist(selected_playlist, y);
 		break;
 	default:
 		break;
@@ -409,144 +524,3 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
 	}
 	return (hRes);
 }
-
-/* Test function to output to the switchblade touchpad using RzSBRenderBuffer() - i fail to access the bitmap structure, however..
-
-void printTextListeRefence(HWND hwnd, long songcount) {
-	HDC hdc;
-	HBITMAP uiimage;
-	RECT bounds;
-	bounds.left = 1L;
-	bounds.top = 1L;
-	bounds.right = 800L;
-	bounds.bottom = 1600L;
-	LPCSTR SongTitles = "Hello World";
-	hdc = GetDC(hwnd);
-	uiimage = CreateCompatibleBitmap(hdc, 800, 1600);
-	FillRect(hdc, &bounds, (HBRUSH)(COLOR_BACKGROUND));
-	DrawText(hdc, SongTitles, 11, &bounds, DT_LEFT & DT_TOP);
-	size_t displayPixels = 800 * 480;
-	RZSBSDK_BUFFERPARAMS display;
-	memset(&display, 0, sizeof(RZSBSDK_BUFFERPARAMS));
-	display.PixelType = RGB565;
-	display.DataSize = (WORD)displayPixels * sizeof(WORD);
-	BitBlt(hdc, 0, 0, 800, 480, hdc, 0, 0, DSTINVERT);
-	RzSBRenderBuffer(RZSBSDK_DISPLAY_WIDGET, &display);
-	DeleteObject(uiimage);
-}
-
-However, this works:
-HDC hdc;
-	HBITMAP uiimage;
-	RECT bounds;
-	bounds.left = 1L;
-	bounds.top = 1L;
-	bounds.right = 800L;
-	bounds.bottom = 1600L;
-	LPCWSTR SongTitles = L"Hello World";
-	hdc = GetDC(hwnd);
-	uiimage = CreateCompatibleBitmap(hdc, 800, 1600);
-	FillRect(hdc, &bounds, (HBRUSH)(COLOR_BACKGROUND));
-	DrawText(hdc, SongTitles, 11, &bounds, DT_LEFT & DT_TOP);
-
-	size_t displayPixels = 800 * 480;
-	RZSBSDK_BUFFERPARAMS display;
-	memset(&display, 0, sizeof(RZSBSDK_BUFFERPARAMS));
-	display.PixelType = RGB565;
-	display.DataSize = (WORD)displayPixels * sizeof(WORD);
-	BitBlt(hdc, 0, 0, 800, 480, hdc, 0, 0, DSTINVERT);
-	RzSBRenderBuffer(RZSBSDK_DISPLAY_WIDGET, &display);
-	DeleteObject(uiimage);
-}
-
-int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
-					 _In_opt_ HINSTANCE hPrevInstance,
-					 _In_ LPWSTR    lpCmdLine,
-					 _In_ int       nCmdShow)
-{
-	UNREFERENCED_PARAMETER(hPrevInstance);
-	UNREFERENCED_PARAMETER(lpCmdLine);
-
-	// TODO: Hier Code einfügen.
-	LPWSTR imagepath;
-	char *sbuibuf;
-	BITMAPINFOHEADER offscreen_bmi;
-	int errcode;
-	imagepath = (LPWSTR)(L"C:\\Users\\asten\\Documents\\Development\\iTunesControl\\iTunesControl\\Background.bmp");
-	CoInitialize(NULL);
-	HRESULT hRes;
-	LoadStringW(hInstance, IDS_APP_TITLE, szTitle, MAX_LOADSTRING);
-	LoadStringW(hInstance, IDC_ITUNESCONTROL, szWindowClass, MAX_LOADSTRING);
-	MyRegisterClass(hInstance);
-	// Anwendungsinitialisierung ausführen:
-	hWnd = InitInstance(hInstance, nCmdShow);
-	HACCEL hAccelTable = LoadAccelerators(hInstance, MAKEINTRESOURCE(IDC_ITUNESCONTROL));
-	MSG msg;
-	int linenum = 20;
-	hRes = ::CoCreateInstance(CLSID_iTunesApp, NULL, CLSCTX_LOCAL_SERVER, IID_IiTunes, (PVOID *)&myITunes);
-	//myITunes->AddRef();
-	if (RzSBStart() == RZSB_OK) {
-		//RzSBSetImageTouchpad(imagepath);
-		hRes = RzSBEnableOSGesture(RZSBSDK_GESTURE_ALL, false);
-		hRes = RzSBGestureSetCallback(reinterpret_cast<TouchpadGestureCallbackFunctionType>(TouchPadHandler));
-		hRes = RzSBAppEventSetCallback(reinterpret_cast<AppEventCallbackType>(AppEventHandler));
-		size_t displayPixels = 800 * 480;
-		void* pixbuf;
-		HANDLE draw_HDIB = GlobalAlloc(GHND, (800*32+31) / 32 * 4 * 480);
-		pixbuf = GlobalLock(draw_HDIB);
-		RZSBSDK_BUFFERPARAMS display;
-		struct {
-			BITMAPINFOHEADER bmiHeader;
-			RGBQUAD bmiColors[256];
-		} bmi;
-		memset(&bmi, 0, sizeof(bmi));
-		bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
-		memset(&display, 0, sizeof(RZSBSDK_BUFFERPARAMS));
-		display.PixelType = RGB565;
-		display.DataSize = displayPixels * sizeof(WORD);
-		display.pData = NULL; // set later
-		WNDCLASSEXW sbwcex = {};
-		const wchar_t sbuiwinclassname[] = L"SB UI Window";
-		sbwcex.lpfnWndProc = SBWndProc;
-		sbwcex.hInstance = hInstance;
-		sbwcex.lpszClassName = sbuiwinclassname;
-		RegisterClassExW(&sbwcex);
-		HWND sbhwnd = CreateWindowEx(0, sbuiwinclassname, L"SBUI BladeSong Window", WS_VISIBLE, CW_USEDEFAULT, CW_USEDEFAULT, 800, 480, NULL, NULL, hInstance, NULL);
-		ShowWindow(sbhwnd, nCmdShow);
-		//UpdateWindow(sbhwnd);
-		HDC hdcMemDC;
-		HBITMAP h_offscreen;
-		BITMAP offscreen;
-
-		hdcMemDC = CreateCompatibleDC(NULL);
-		h_offscreen = CreateBitmap(800, 480, 1, 32, pixbuf);
-		SelectObject(hdcMemDC, h_offscreen);
-		TextOut(hdcMemDC, 1, 1, L"Anders", 6);
-		BitBlt(GetDC(hWnd), 0, 0, 800, 480, hdcMemDC, 0, 0, SRCCOPY);  // Test Copy to WinScreen see if works
-		GetObject(h_offscreen, sizeof(BITMAP), &offscreen);
-		offscreen_bmi.biSize = sizeof(BITMAPINFOHEADER);
-		offscreen_bmi.biWidth = offscreen.bmWidth;
-		offscreen_bmi.biHeight = offscreen.bmHeight;
-		offscreen_bmi.biPlanes = 1;
-		offscreen_bmi.biBitCount = 32;
-		offscreen_bmi.biCompression = BI_RGB;
-		offscreen_bmi.biSizeImage = 0;
-		offscreen_bmi.biXPelsPerMeter = 0;
-		offscreen_bmi.biYPelsPerMeter = 0;
-		offscreen_bmi.biClrUsed = 0;
-		offscreen_bmi.biClrImportant = 0;
-		HANDLE HDIB = GlobalAlloc(GHND, (offscreen.bmWidth*(offscreen_bmi.biBitCount) + 31) / 32 * 4 * offscreen.bmHeight);
-		display.pData = (BYTE *)GlobalLock(HDIB);
-
-		//errcode = GetDIBits(hdcMemDC, h_offscreen, 1, 479, display.pData, (BITMAPINFO *)&offscreen_bmi, DIB_RGB_COLORS);
-		GetBitmapBits(h_offscreen, display.DataSize, display.pData);
-		BitBlt(GetDC(hWnd), 0, 0, 800, 480, hdcMemDC, 0, 0, SRCCOPY);  // Test Copy to WinScreen see if works
-		//GetBitmapBits(offscreen, display.DataSize, display.pData);
-		//pColor = ((LPSTR)pBitmapInfo + (WORD)(pBitmapInfo->bmiHeader.biSize)); ?? reicht auch??
-		//GetDIBits(hdcMemDC, offscreen, 0, 480, display.pData, (BITMAPINFO *)&bmi, DIB_RGB_COLORS);
-		//display.pData = (BYTE *)sbuibuf;
-		RzSBRenderBuffer(RZSBSDK_DISPLAY_WIDGET, &display);
-	}
-
-
-*/
