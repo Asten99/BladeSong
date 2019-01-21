@@ -63,9 +63,11 @@ HRESULT initSwitchbladeControls();
 HRESULT setAppState(short);
 HRESULT showiTunesControlInterface();
 HRESULT showiTunesPlaylistInterface();
+HRESULT refreshiTunesPlayList();
 
 const short fontsize = 17;						// playlist font size
 const short spacing = 5;						// playlist padding
+const size_t max_chars_per_line = 32;			// char line length of the sbui display in the specified font / size
 
 HINSTANCE hInst;                                // program instance
 IiTunes* myITunes;								// handle to iTunes COM object global variable - needed for touch hanndling callback function 

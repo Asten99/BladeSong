@@ -49,11 +49,19 @@ bool iTunes_song_is_playing(IiTunes* iITunes) {	// returns true if a song is cur
 }
 
 bool play_iTunes_song(IiTunes* iITunes, long playlist, long track) {
-	IITTrack *track_to_play;
+	IITObject *track_to_play_temp;				// this is the IITObject we get back from GetITObjectByID using the stored ID's from the selected track
+	IITTrack *track_to_play;					// we need to get a pointer to this interface in order to use play() on it
 	HRESULT errCode = S_OK;
 	iITunes->Release();
-	errCode = iITunes->GetITObjectByID(allSongs[playlist]->SourceID, allSongs[playlist]->PlaylistID, allSongs[playlist]->tracks[track]->TrackID, allSongs[playlist]->SourceID, (IITObject**)&track_to_play);
+	/* get the song using the previously stored id's of the track */
+	errCode = iITunes->GetITObjectByID(allSongs[playlist]->SourceID, allSongs[playlist]->PlaylistID, allSongs[playlist]->tracks[track]->TrackID, allSongs[playlist]->tracks[track]->TrackDatabaseID, &track_to_play_temp);
+	/* get an IITTrack interface to the track we got */
+	errCode = track_to_play_temp->QueryInterface(IID_IITTrack, (void**)&track_to_play);
+	/* play the track */
 	errCode = track_to_play->Play();
+	/* release handles */
+	track_to_play->Release();
+	track_to_play_temp->Release();
 	if (errCode == S_OK)
 		return true;
 	else
@@ -170,35 +178,42 @@ HRESULT drawPlaylistOffscreen(short playlist) { // playlist 0 = list of playlist
 	if (playlist > num_playlists)
 		return E_FAIL;
 	else {
-		if (playlist == 0) {					// Needs work - copy only names of playlists
-			neededlines = 12;
-
-		}
-		else {									// copy names of songs of the specified playlist
+		/* calculate the number of lines the offscreen image needs to hold based on font size, spacing between lines and needed number of lines */
+		if (playlist == 0)
+			neededlines = num_playlists * (fontsize + spacing) + spacing;
+		else
 			neededlines = allSongs[playlist]->membercount*(fontsize + spacing) + spacing;
-			// we need the offscreen image to be exactly display size  -  make bigger offscreen image, then BitBlt into s second offscreen image that has 800x480
-			// allocate memory (moveable, fill with zeros): screenwidth * bpp, align to next 32 bit block * planes * lines
-			o_h_pixbuf = GlobalAlloc(GHND, (800 * 32 + 31) / 32 * 4 * neededlines);
-			// lock the memory, get a pointer to it
-			o_pixbuf = GlobalLock(o_h_pixbuf);
-			// get handle to an offscreen device context
-			hdcOffscreenDC = CreateCompatibleDC(NULL);
-			// create offscreen memory bitmap that will hold the full playlist
-			h_offscreen = CreateBitmap(800, neededlines, 1, 32, o_pixbuf);
-			
-			// select offscreen image into device context
-			SelectObject(hdcOffscreenDC, h_offscreen);
-			SetTextColor(hdcOffscreenDC, transl_RGB565(212, 175, 55));
-			hFont = CreateFont(25, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_OUTLINE_PRECIS, CLIP_DEFAULT_PRECIS, ANTIALIASED_QUALITY, DEFAULT_PITCH, TEXT("razer regular"));
-			SelectObject(hdcOffscreenDC, hFont);
-			SetBkColor(hdcOffscreenDC, transl_RGB565(0, 0, 0));
-			// lenght of a song name in the memory structutre: _tcslen((allSongs[playlist]->tracks[i]->name
+		if (neededlines < 800)					// todo: this should not be necessary
+			neededlines = 800;
+		// we need the offscreen image to be exactly display size  -  make bigger offscreen image, then BitBlt into s second offscreen image that has 800x480
+		// allocate memory (moveable, fill with zeros): screenwidth * bpp, align to next 32 bit block * planes * lines
+		o_h_pixbuf = GlobalAlloc(GHND, (800 * 32 + 31) / 32 * 4 * neededlines);
+		// lock the memory, get a pointer to it
+		o_pixbuf = GlobalLock(o_h_pixbuf);
+		// get handle to an offscreen device context
+		hdcOffscreenDC = CreateCompatibleDC(NULL);
+		// create offscreen memory bitmap that will hold the full list of playlists
+		h_offscreen = CreateBitmap(800, neededlines, 1, 32, o_pixbuf);
+		// select offscreen image into device context
+		SelectObject(hdcOffscreenDC, h_offscreen);
+		SetTextColor(hdcOffscreenDC, transl_RGB565(212, 175, 55));
+		hFont = CreateFont(25, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_OUTLINE_PRECIS, CLIP_DEFAULT_PRECIS, ANTIALIASED_QUALITY, DEFAULT_PITCH, TEXT("razer regular"));
+		SelectObject(hdcOffscreenDC, hFont);
+		SetBkColor(hdcOffscreenDC, transl_RGB565(0, 0, 0));
+		if (playlist == 0) {					// copy only names of playlists
+			/* lenght of a playlist name name in the memory structutre: _tcslen(allSongs[playlist]->name()) */
+			for (long i = 0; i < num_playlists; i = i + 1) {
+				chars_per_line = _tcslen(allSongs[i]->name);
+				TextOut(hdcOffscreenDC, spacing, (spacing + (fontsize + spacing)*(i + 1)), allSongs[i]->name, chars_per_line > max_chars_per_line ? max_chars_per_line : chars_per_line);
+			}
+		} else {								// copy names of songs of the specified playlist
+			/* lenght of a song name in the memory structutre: _tcslen((allSongs[playlist]->tracks[i]->name()) */
 			for (long i = 0; i < allSongs[playlist]->membercount; i = i + 1) {
 				chars_per_line = _tcslen(allSongs[playlist]->tracks[i]->name);
-				TextOut(hdcOffscreenDC, spacing, (spacing + (fontsize + spacing)*(i + 1)), allSongs[playlist]->tracks[i]->name , chars_per_line>32?32: chars_per_line);	//(wchar_t *)  // find a way to cap string lenght correctly - not bigger than strlen, not bigger than screen size
+				TextOut(hdcOffscreenDC, spacing, (spacing + (fontsize + spacing)*(i + 1)), allSongs[playlist]->tracks[i]->name, chars_per_line > max_chars_per_line ? max_chars_per_line : chars_per_line);	//(wchar_t *)  // find a way to cap string lenght correctly - not bigger than strlen, not bigger than screen size
 			}
-			DeleteObject(hFont);
 		}
+		DeleteObject(hFont);
 	}
 	return retval;
 }
@@ -285,7 +300,7 @@ HRESULT padFlick(WORD direction) {				// handles switchblade input for scrolling
 	HRESULT retval;
 	retval = S_OK;
 	short scrolled = 0;
-	float scrolllength = 400;					// how much to scroll with one flick
+	float scrolllength = 300;					// how much to scroll with one flick
 	short SBUI_length = 480;
 	float scroll_increment;
 	float scroll_increment_fas = 12;
@@ -324,12 +339,21 @@ HRESULT padFlick(WORD direction) {				// handles switchblade input for scrolling
 
 HRESULT play_song_on_playlist(long playlist, WORD y_coordinates) {
 	HRESULT retval = S_OK;
+	long selection;
 	long true_y = scroll_offset + y_coordinates - spacing - 72;
 	if (true_y >= 0) {
-		long songnumber = true_y / (45);
-		play_iTunes_song(myITunes, (long)playlist, songnumber);
-		OutputDebugStringW(L"\n");
-		OutputDebugStringW((LPWSTR)allSongs[playlist]->tracks[songnumber]->name);
+		if (selected_playlist == 0) {
+			selection = true_y / (45);
+			selected_playlist = (short)selection;
+			setAppState(APPSTATE_PLAYLIST);
+		}
+		else {
+			selection = true_y / (45);
+			myITunes->AddRef();
+			play_iTunes_song(myITunes, (long)playlist, selection);
+			// OutputDebugStringW(L"\n");
+			// OutputDebugStringW((LPWSTR)allSongs[playlist]->tracks[selection]->name);
+		}
 	}
 	return retval;
 }
@@ -369,7 +393,13 @@ HRESULT setAppState(short appstate) {
 		break;
 	case APPSTATE_PLAYLIST_START:
 		applicationstate = APPSTATE_PLAYLIST_START;
-		selected_playlist = 1;
+		selected_playlist = 0;
+		scroll_offset = 0;
+		refreshiTunesPlayList();
+		showiTunesPlaylistInterface();
+		break;
+	case APPSTATE_PLAYLIST:
+		applicationstate = APPSTATE_PLAYLIST;
 		scroll_offset = 0;
 		showiTunesPlaylistInterface();
 		break;
@@ -394,15 +424,19 @@ HRESULT showiTunesControlInterface() {
 
 /* displays the interface for playlist control on the switchblade touchscreen */
 
+HRESULT refreshiTunesPlayList() {
+	HRESULT retval;
+	retval = S_OK;
+	myITunes->AddRef();
+	getPlaylists_iTunes(myITunes);
+	return retval;
+}
+
 HRESULT showiTunesPlaylistInterface() {
 	HRESULT retval;
 	retval = S_OK;
-
-	myITunes->AddRef();
-	getPlaylists_iTunes(myITunes);
 	drawPlaylistOffscreen(selected_playlist);
 	renderplaylistUI();
-//	retval = RzSBSetImageTouchpad(image_playlist_songs);    // maybe use for loading screen - query loading thread for playlists if it is finished?
 	retval = RzSBGestureSetCallback(reinterpret_cast<TouchpadGestureCallbackFunctionType>(TouchPadHandler_Playlist));
 	return retval;
 }
