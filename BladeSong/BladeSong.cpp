@@ -1,9 +1,24 @@
 #include "BladeSong.h"
 
+/*todo bladesong:
 
+-) alle bilder als ressorce einbinden, dann loadfromresource makro verwenden
+-) playlists sortieren
+-) threaded scrolling
+-) ueberschrift bei playlists
+-) switchblade theme support einbaun
+-) lautstaerkeregelungs-fenster und knopf
+-) songtitel scrollt in control fenster hin/her
+-) control fenster huebscher machen
+
+implementierungstips:
+
+state weiterscrollen=true waehrend scrollthread laeuft, er beendet sich wenn es false ist (zb. durch tap event)
+laden von songs - array von playlists mit malloc erstellen, dann pointer auf einzelne playlists an ladethread; im array gibt es eine zustandsvariable (nicht vorhanden/ladt/sortiert/fertig geladen) die auf fertigg geladen am ende vom ladethread gesetzt wird. angezeigt wird eine list erst wenn sie status fertig geladen hat
+abspielen von playlists? ev eine play() funktion bei playlists?*/
 
 HRESULT connectiTunes() {
-	//CoInitialize(NULL);							// start COM connectivity
+	/* start COM connectivity */
 	CoInitializeEx(NULL, COINIT_MULTITHREADED | COINIT_SPEED_OVER_MEMORY);
 	/* attach to iTunes via COM */
 	return (::CoCreateInstance(CLSID_iTunesApp, NULL, CLSCTX_LOCAL_SERVER, IID_IiTunes, (PVOID *)&myITunes));
@@ -14,7 +29,6 @@ HRESULT disconnectiTunes() {
 	myITunes->Release();						// release iTunes COM object hold by this app
 	RzSBStop();									// release switchblade control
 	CoUninitialize();							// stop COM connectivity
-	OutputDebugString((LPCTSTR)L"\n\niTunes interface disconnected!\n");
 	return S_OK;
 }
 
@@ -82,7 +96,7 @@ LPCWSTR getTrack_iTunes(IiTunes* iITunes) {		// return current track from iTunes
 	}
 	return NULL;
 }
-
+/* Old Code: Single-Threaded Song Loading mechanism:
 HRESULT getPlaylists_iTunes(IiTunes* iITunes) {
 	HRESULT errCode;
 	IITSource *iTunesLibrary;
@@ -140,7 +154,7 @@ HRESULT getPlaylists_iTunes(IiTunes* iITunes) {
 		allSongs[i]->SourceID = workingSourceID;
 		allSongs[i]->tracks = (trackData **)malloc(num_songs_per_playlist * sizeof(trackData));
 		for (long j = 0; j < num_songs_per_playlist; j = j + 1) { 
-			/* enumerate all tracks of this playlist, put it in allsongs[i]->tracks */
+			// enumerate all tracks of this playlist, put it in allsongs[i]->tracks
 				errCode = workingTracks->get_Item(j+1, &workingTrack);
 				if (errCode != S_OK)
 					return errCode;
@@ -163,7 +177,127 @@ HRESULT getPlaylists_iTunes(IiTunes* iITunes) {
 	workingPlaylists->Release();
 	iTunesLibrary->Release();
 	return errCode;
+} */
+
+HRESULT getPlaylists_iTunes(IiTunes* iITunes) {
+	HRESULT errCode;
+	IITSource *iTunesLibrary;
+	IITPlaylistCollection *workingPlaylists;
+	HANDLE *threadlist;
+	long workingSourceID;
+	workingSourceID = 0;
+	num_playlists = 0;
+	errCode = S_OK;
+	errCode = iITunes->get_LibrarySource(&iTunesLibrary);
+	if (errCode != S_OK)
+		return errCode;
+	errCode = iTunesLibrary->get_SourceID(&workingSourceID);
+	if (errCode != S_OK)
+		return errCode;
+	errCode = iTunesLibrary->get_Playlists(&workingPlaylists);
+	if (errCode != S_OK)
+		return errCode;
+	errCode = workingPlaylists->get_Count(&num_playlists);
+	if (errCode != S_OK)
+		return errCode;
+	allSongs = (playlistData **)malloc(num_playlists * sizeof(playlistData**));
+	threadlist = (HANDLE *)malloc(num_playlists * sizeof(HANDLE));
+	for (long i = 0; i < num_playlists; i = i + 1) {
+		allSongs[i] = (playlistData *)malloc(sizeof(playlistData));
+		allSongs[i]->internalID = i;
+		threadlist[i] = CreateThread(NULL, 0, getiTunesPlaylist, &allSongs[i]->internalID, 0,NULL);
+	}
+	workingPlaylists->Release();
+	iTunesLibrary->Release();
+	iITunes->Release();
+	return errCode;
 }
+DWORD WINAPI getiTunesPlaylist(LPVOID pData) {
+	/* we get numer which is the allocated Playlist we should im port */
+	HRESULT errCode;
+	long* playlistno = (long*)pData;
+	IITSource *iTunesLibrary;
+	IITPlaylistCollection *workingPlaylists;
+	IITPlaylist *workingPlaylist;
+	IITTrackCollection *workingTracks;
+	IITTrack *workingTrack;
+	BSTR workingPlayListName;
+	BSTR workingTrackName;
+	long num_songs_per_playlist;
+	long workingplaylistID;
+	long workingtrackID;
+	long workingtrackDatabaseID;
+	long workingSourceID;
+	workingplaylistID = 0;
+	workingtrackID = 0;
+	workingtrackDatabaseID = 0;
+	workingSourceID = 0;
+	errCode = S_OK;
+	//OutputDebugStringW(LPCWSTR("\n\nThreadID:"));
+	//OutputDebugStringW(LPCWSTR(*playlistno));
+	allSongs[*playlistno] = (playlistData *)malloc(sizeof(playlistData));
+	allSongs[*playlistno]->loadState = PL_STATE_NOT_LOADED;
+	/* Traverste the iTunes COM object to get to our desired playlist */
+	errCode = myITunes->get_LibrarySource(&iTunesLibrary);
+	if (errCode != S_OK)
+		return errCode;
+	errCode = iTunesLibrary->get_SourceID(&workingSourceID);
+	if (errCode != S_OK)
+		return errCode;
+	errCode = iTunesLibrary->get_Playlists(&workingPlaylists);
+	if (errCode != S_OK)
+		return errCode;
+	/* Here we get the representation of the playlist we are interested in */
+	errCode = workingPlaylists->get_Item(*playlistno + 1, &workingPlaylist);
+	if (errCode != S_OK)
+		return errCode;
+	/* Here we get a Collection of the Tracks of the playlist we are looking for */
+	errCode = workingPlaylist->get_Tracks(&workingTracks);
+	if (errCode != S_OK)
+		return errCode;
+	errCode = workingTracks->get_Count(&num_songs_per_playlist);
+	if (errCode != S_OK)
+		return errCode;
+	errCode = workingPlaylist->get_Name(&workingPlayListName);
+	if (errCode != S_OK)
+		return errCode;
+	errCode = workingPlaylist->get_PlaylistID(&workingplaylistID);
+	if (errCode != S_OK)
+		return errCode;
+	/* We fill up our representation of the playlist with the information we have */
+	allSongs[*playlistno]->membercount = num_songs_per_playlist;
+	allSongs[*playlistno]->name = (LPTSTR)workingPlayListName;
+	allSongs[*playlistno]->PlaylistID = workingplaylistID;
+	allSongs[*playlistno]->SourceID = workingSourceID;
+	allSongs[*playlistno]->tracks = (trackData **)malloc(num_songs_per_playlist * sizeof(trackData));
+	allSongs[*playlistno]->loadState = PL_STATE_LOADING;
+	for (long j = 0; j < num_songs_per_playlist; j = j + 1) {
+		/* enumerate all tracks of this playlist, put it in allsongs[i]->tracks */
+		errCode = workingTracks->get_Item(j + 1, &workingTrack);
+		if (errCode != S_OK)
+			return errCode;
+		errCode = workingTrack->get_Name(&workingTrackName);
+		if (errCode != S_OK)
+			return errCode;
+		errCode = workingTrack->get_TrackID(&workingtrackID);
+		if (errCode != S_OK)
+			return errCode;
+		errCode = workingTrack->get_TrackDatabaseID(&workingtrackDatabaseID);
+		allSongs[*playlistno]->tracks[j] = (trackData *)malloc(sizeof(trackData));
+		allSongs[*playlistno]->tracks[j]->name = (LPTSTR)workingTrackName;
+		allSongs[*playlistno]->tracks[j]->TrackID = workingtrackID;
+		allSongs[*playlistno]->tracks[j]->TrackDatabaseID = workingtrackDatabaseID;
+		workingTrack->Release();
+	}
+	/* Missing: here we need to sort the playlist */
+	allSongs[*playlistno]->loadState = PL_STATE_READY;
+	workingTracks->Release();
+	workingPlaylist->Release();
+	workingPlaylists->Release();
+	iTunesLibrary->Release();
+	return errCode;
+}
+
 
 COLORREF transl_RGB565(byte r, byte g, byte b) {// we expect color values in rgb 0..255 range each
 	return ((r/8) << 11) | ((g/4) << 5) | (b/8);// normalize to 0..31/0..63/0..31 range, then bitshift into WORD for RGB565 conversion, then reurn in COLORREF datatype for compatibility with existing windows draw functions
@@ -207,10 +341,16 @@ HRESULT drawPlaylistOffscreen(short playlist) { // playlist 0 = list of playlist
 				TextOut(hdcOffscreenDC, spacing, (spacing + (fontsize + spacing)*(i + 1)), allSongs[i]->name, chars_per_line > max_chars_per_line ? max_chars_per_line : chars_per_line);
 			}
 		} else {								// copy names of songs of the specified playlist
-			/* lenght of a song name in the memory structutre: _tcslen((allSongs[playlist]->tracks[i]->name()) */
-			for (long i = 0; i < allSongs[playlist]->membercount; i = i + 1) {
-				chars_per_line = _tcslen(allSongs[playlist]->tracks[i]->name);
-				TextOut(hdcOffscreenDC, spacing, (spacing + (fontsize + spacing)*(i + 1)), allSongs[playlist]->tracks[i]->name, chars_per_line > max_chars_per_line ? max_chars_per_line : chars_per_line);	//(wchar_t *)  // find a way to cap string lenght correctly - not bigger than strlen, not bigger than screen size
+					/* check wether songs are loaded and ready for display */
+			if (allSongs[playlist]->loadState != PL_STATE_READY) {
+				TextOut(hdcOffscreenDC, spacing, (spacing + (fontsize + spacing)), L"loading playlist...\0", chars_per_line > max_chars_per_line ? max_chars_per_line : chars_per_line);
+			}
+			else {
+				/* lenght of a song name in the memory structutre: _tcslen((allSongs[playlist]->tracks[i]->name()) */
+				for (long i = 0; i < allSongs[playlist]->membercount; i = i + 1) {
+					chars_per_line = _tcslen(allSongs[playlist]->tracks[i]->name);
+					TextOut(hdcOffscreenDC, spacing, (spacing + (fontsize + spacing)*(i + 1)), allSongs[playlist]->tracks[i]->name, chars_per_line > max_chars_per_line ? max_chars_per_line : chars_per_line);	//(wchar_t *)  // find a way to cap string lenght correctly - not bigger than strlen, not bigger than screen size
+				}
 			}
 		}
 		DeleteObject(hFont);
@@ -381,7 +521,8 @@ HRESULT setAppState(short appstate) {
 	case APPSTATE_STARTUP:
 		applicationstate = APPSTATE_STARTUP;
 		initSwitchbladeControls();			// paint button interface
-		showiTunesControlInterface();		// paint interface for itunes controls
+		showiTunesControlInterface();		// paint interface for iTunes controls
+		refreshiTunesPlayList();			// get songlists from iTunes
 		break;
 	case APPSTATE_CONTROLS_PLAY:
 		applicationstate = APPSTATE_CONTROLS_PLAY;
@@ -395,7 +536,6 @@ HRESULT setAppState(short appstate) {
 		applicationstate = APPSTATE_PLAYLIST_START;
 		selected_playlist = 0;
 		scroll_offset = 0;
-		refreshiTunesPlayList();
 		showiTunesPlaylistInterface();
 		break;
 	case APPSTATE_PLAYLIST:
@@ -473,7 +613,7 @@ HRESULT STDMETHODCALLTYPE DynamicKeyHandler(RZSBSDK_DKTYPE DynamicKey, RZSBSDK_K
 			PostQuitMessage(0);
 			break;
 		case RZSBSDK_DK_6:						// show iTunes controls button
-			setAppState(APPSTATE_STARTUP);
+			setAppState(APPSTATE_CONTROLS_PLAY);
 			break;
 		case RZSBSDK_DK_7:						// show playlist button
 			setAppState(APPSTATE_PLAYLIST_START);

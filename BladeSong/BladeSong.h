@@ -19,6 +19,11 @@
 #define APPSTATE_CONTROLS_PAUSE 2				// the itunes play controls with pause button are displayed by the application
 #define APPSTATE_PLAYLIST 3						// playlists are displayed by the application
 #define APPSTATE_PLAYLIST_START 4				// list of all playlists is to be displayed by the application
+#define PL_STATE_UNDEFINED 5					// state of an internal representation of a playlist - unknown
+#define PL_STATE_NOT_LOADED 6					// state of an internal representation of a playlist - uninitalized
+#define PL_STATE_LOADING 7						// state of an internal representation of a playlist - playlist information set, loading individual tracks
+#define PL_STATE_SORTING 8						// state of an internal representation of a playlist - all data loaded, sorting tracks by name
+#define PL_STATE_READY 9						// state of an internal representation of a playlist - all data loaded, sorting finished, ready for usage
 
 const LPWSTR image_play_controls = (LPWSTR)L"..\\res\\controls_play.png";
 const LPWSTR image_pause_controls = (LPWSTR)L"..\\res\\controls_pause.png";
@@ -40,6 +45,8 @@ struct playlistData {
 	long membercount;
 	long PlaylistID;
 	long SourceID;
+	short loadState;
+	long internalID;
 	trackData **tracks;
 };
 
@@ -64,6 +71,8 @@ HRESULT setAppState(short);
 HRESULT showiTunesControlInterface();
 HRESULT showiTunesPlaylistInterface();
 HRESULT refreshiTunesPlayList();
+DWORD WINAPI getiTunesPlaylist(LPVOID);
+
 
 const short fontsize = 17;						// playlist font size
 const short spacing = 5;						// playlist padding
