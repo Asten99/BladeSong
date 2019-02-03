@@ -32,8 +32,6 @@ const LPWSTR image_button_controls = (LPWSTR)L"..\\res\\button_controls.png";
 const LPWSTR image_button_list = (LPWSTR)L"..\\res\\button_list.png";
 const LPWSTR image_playlist_songs = (LPWSTR)L"..\\res\\feature_missing.png";
 
-long num_playlists;
-
 struct trackData {
 	LPTSTR name;
 	long TrackID;
@@ -71,7 +69,9 @@ HRESULT setAppState(short);
 HRESULT showiTunesControlInterface();
 HRESULT showiTunesPlaylistInterface();
 HRESULT refreshiTunesPlayList();
-DWORD WINAPI getiTunesPlaylist(LPVOID);
+DWORD WINAPI getiTunesPlaylist(LPVOID);			// playlist iTunes COM enumeration thread
+DWORD WINAPI scrollUI(LPVOID);					// playlist browser scroll thread
+int trackComp(const void *t1, const void *t2);	// compares two tracks along their names and returns wich is to be ordered first for sorting (qsort)
 
 
 const short fontsize = 17;						// playlist font size
@@ -84,11 +84,12 @@ playlistData **allSongs;						// internal structure to hold all playlists and ti
 short applicationstate;							// what the application is to display to the user (ie control mode, playlist mode)
 short selected_playlist;						// which playlist has been selected to display by the user; to be conform to Apple, this start with 1. 0 is the list of all playlists
 long scroll_offset;								// offset used to determine the scrolled state to calculate the correct view portion of larger images to show
-
+long num_playlists;								// how many playlists we import form iTunes (all in the library)
 HDC hdcOffscreenDC;								// device context handle for offscreen rendering of the whole playlist
 HBITMAP h_offscreen;							// bitmap handle for the offscreen image
 void *o_pixbuf;									// memory for the actual offscreen image
 HANDLE o_h_pixbuf;								// handle to said memory
+bool continue_scrolling;						// flag to tell the scrolling thread to stop
 
 BITMAPINFOHEADER bmi_offscreen;				// Handle to said image
 

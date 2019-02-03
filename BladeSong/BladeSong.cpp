@@ -4,7 +4,6 @@
 
 -) alle bilder als ressorce einbinden, dann loadfromresource makro verwenden
 -) playlists sortieren
--) threaded scrolling
 -) ueberschrift bei playlists
 -) switchblade theme support einbaun
 -) lautstaerkeregelungs-fenster und knopf
@@ -96,88 +95,6 @@ LPCWSTR getTrack_iTunes(IiTunes* iITunes) {		// return current track from iTunes
 	}
 	return NULL;
 }
-/* Old Code: Single-Threaded Song Loading mechanism:
-HRESULT getPlaylists_iTunes(IiTunes* iITunes) {
-	HRESULT errCode;
-	IITSource *iTunesLibrary;
-	IITPlaylistCollection *workingPlaylists;
-	IITPlaylist *workingPlaylist;
-	IITTrackCollection *workingTracks;
-	IITTrack *workingTrack;
-	BSTR workingPlayListName;
-	BSTR workingTrackName;
-	long num_songs_per_playlist;
-	long workingplaylistID;
-	long workingtrackID;
-	long workingtrackDatabaseID;
-	long workingSourceID;
-	workingplaylistID = 0;
-	workingtrackID = 0;
-	workingtrackDatabaseID = 0;
-	workingSourceID = 0;
-	num_playlists = 0;
-	errCode = S_OK;
-	iITunes->Release();
-	errCode = iITunes->get_LibrarySource(&iTunesLibrary);
-	if (errCode != S_OK)
-		return errCode;
-	errCode = iTunesLibrary->get_SourceID(&workingSourceID);
-	if (errCode != S_OK)
-		return errCode;
-	errCode = iTunesLibrary->get_Playlists(&workingPlaylists);
-	if (errCode != S_OK)
-		return errCode;
-	errCode = workingPlaylists->get_Count(&num_playlists);
-	if (errCode != S_OK)
-		return errCode;
-	allSongs = (playlistData **) malloc(num_playlists * sizeof(playlistData**));
-	for (long i = 0; i < num_playlists; i = i + 1) {
-		allSongs[i] = (playlistData *)malloc(sizeof(playlistData));
-		errCode = workingPlaylists->get_Item(i + 1, &workingPlaylist);
-		if (errCode != S_OK)
-			return errCode;
-		errCode = workingPlaylist->get_Tracks(&workingTracks);
-		if (errCode != S_OK)
-			return errCode;
-		errCode = workingTracks->get_Count(&num_songs_per_playlist);
-		if (errCode != S_OK)
-			return errCode;
-		errCode = workingPlaylist->get_Name(&workingPlayListName);
-		if (errCode != S_OK)
-			return errCode;
-		errCode = workingPlaylist->get_PlaylistID(&workingplaylistID);
-		if (errCode != S_OK)
-			return errCode;
-		allSongs[i]->membercount = num_songs_per_playlist;
-		allSongs[i]->name = (LPTSTR)workingPlayListName;
-		allSongs[i]->PlaylistID = workingplaylistID;
-		allSongs[i]->SourceID = workingSourceID;
-		allSongs[i]->tracks = (trackData **)malloc(num_songs_per_playlist * sizeof(trackData));
-		for (long j = 0; j < num_songs_per_playlist; j = j + 1) { 
-			// enumerate all tracks of this playlist, put it in allsongs[i]->tracks
-				errCode = workingTracks->get_Item(j+1, &workingTrack);
-				if (errCode != S_OK)
-					return errCode;
-				errCode = workingTrack->get_Name(&workingTrackName);
-				if (errCode != S_OK)
-					return errCode;
-				errCode = workingTrack->get_TrackID(&workingtrackID);
-				if (errCode != S_OK)
-					return errCode;
-				errCode = workingTrack->get_TrackDatabaseID(&workingtrackDatabaseID);
-				allSongs[i]->tracks[j] = (trackData *)malloc(sizeof(trackData));
-				allSongs[i]->tracks[j]->name = (LPTSTR)workingTrackName;
-				allSongs[i]->tracks[j]->TrackID = workingtrackID;
-				allSongs[i]->tracks[j]->TrackDatabaseID = workingtrackDatabaseID;
-				workingTrack->Release();
-		}
-		workingTracks->Release();
-		workingPlaylist->Release();
-	}
-	workingPlaylists->Release();
-	iTunesLibrary->Release();
-	return errCode;
-} */
 
 HRESULT getPlaylists_iTunes(IiTunes* iITunes) {
 	HRESULT errCode;
@@ -233,8 +150,6 @@ DWORD WINAPI getiTunesPlaylist(LPVOID pData) {
 	workingtrackDatabaseID = 0;
 	workingSourceID = 0;
 	errCode = S_OK;
-	//OutputDebugStringW(LPCWSTR("\n\nThreadID:"));
-	//OutputDebugStringW(LPCWSTR(*playlistno));
 	allSongs[*playlistno] = (playlistData *)malloc(sizeof(playlistData));
 	allSongs[*playlistno]->loadState = PL_STATE_NOT_LOADED;
 	/* Traverste the iTunes COM object to get to our desired playlist */
@@ -289,6 +204,9 @@ DWORD WINAPI getiTunesPlaylist(LPVOID pData) {
 		allSongs[*playlistno]->tracks[j]->TrackDatabaseID = workingtrackDatabaseID;
 		workingTrack->Release();
 	}
+	allSongs[*playlistno]->loadState = PL_STATE_SORTING;
+	if (allSongs[*playlistno]->membercount > 1)
+		qsort((void *)allSongs[*playlistno]->tracks, (size_t)allSongs[*playlistno]->membercount, sizeof(trackData*), trackComp);
 	/* Missing: here we need to sort the playlist */
 	allSongs[*playlistno]->loadState = PL_STATE_READY;
 	workingTracks->Release();
@@ -298,6 +216,11 @@ DWORD WINAPI getiTunesPlaylist(LPVOID pData) {
 	return errCode;
 }
 
+int trackComp(const void *t1, const void *t2) {
+	trackData* tc1 = (trackData *)t1;
+	trackData* tc2 = (trackData *)t2;
+	return wcscmp(*(wchar_t**)tc1->name, *(wchar_t**)tc2->name);
+}
 
 COLORREF transl_RGB565(byte r, byte g, byte b) {// we expect color values in rgb 0..255 range each
 	return ((r/8) << 11) | ((g/4) << 5) | (b/8);// normalize to 0..31/0..63/0..31 range, then bitshift into WORD for RGB565 conversion, then reurn in COLORREF datatype for compatibility with existing windows draw functions
@@ -368,6 +291,7 @@ HRESULT renderplaylistUI() {
 	HANDLE HDIB;								// handle for SBUI RGB565 image buffer
 	HDC hdcOffscreenviewportDC;					// Create device context handle for the viewport image
 	
+	retval = S_OK;
 	/* BITBLT to implement scrolling is here;
 	   create second image the exact size of the SBUI display to copy scrolled view portion of the offscreen image into */
 	neededlines = 480;						// we need to match the SBUI display
@@ -404,7 +328,6 @@ HRESULT renderplaylistUI() {
 	GetBitmapBits(h_offscreen_viewport, sbuidisplay.DataSize, sbuidisplay.pData);
 	// let the SBUI draw from its image structure
 	RzSBRenderBuffer(RZSBSDK_DISPLAY_WIDGET, &sbuidisplay);
-	retval = S_OK;
 	return retval;
 }
 
@@ -436,6 +359,7 @@ HRESULT padTap(WORD x, WORD y) {				// handles switchblade touch input for playe
 	return retval;
 }
 
+/* Old Code - not threaded
 HRESULT padFlick(WORD direction) {				// handles switchblade input for scrolling in the playlists
 	HRESULT retval;
 	retval = S_OK;
@@ -454,7 +378,7 @@ HRESULT padFlick(WORD direction) {				// handles switchblade input for scrolling
 		while (((scroll_offset + scroll_increment) <= (offscreen_imagelength - SBUI_length)) && ((scrolled + scroll_increment) <= scrolllength)) {
 			scroll_offset = scroll_offset + (long)scroll_increment;
 			scrolled = scrolled + (short)scroll_increment;
-			/* scroll slower at the end of the scroll - scale the scrolling speed/scroll increments - scrolled should at this point never be 0 */
+			// scroll slower at the end of the scroll - scale the scrolling speed/scroll increments - scrolled should at this point never be 0
 			scroll_increment = scroll_increment_fas - ((scrolled / scrolllength) * scroll_increment_fas)+1;
 			renderplaylistUI();					// redraw SBUI
 			Sleep(1);
@@ -464,8 +388,62 @@ HRESULT padFlick(WORD direction) {				// handles switchblade input for scrolling
 		while ((scroll_offset > 0) && ((scrolled + scroll_increment) <= scrolllength)) {
 			scroll_offset = scroll_offset - (long)scroll_increment;
 			scrolled = scrolled + (short)scroll_increment;
-			/* scroll slower at the end of the scroll - scale the scrolling speed/scroll increments */
+			// scroll slower at the end of the scroll - scale the scrolling speed/scroll increments
 			scroll_increment = scroll_increment_fas - ((scrolled / scrolllength) * scroll_increment_fas)+1;
+			renderplaylistUI();					// redraw SBUI
+			// scroll slower at the end of the scroll - get slower in the third quarter of the scroll, even slower in the fourth quarter
+			Sleep(1);
+		}
+		break;
+	default:
+		break;
+	}
+	return retval;
+}
+*/
+
+HRESULT padFlick(WORD direction) {				// handles switchblade input for scrolling in the playlists
+	HRESULT retval;
+	retval = S_OK;
+	CreateThread(NULL, 0, scrollUI, &direction, 0, NULL);
+	return retval;
+}
+
+DWORD WINAPI scrollUI(LPVOID pData) {
+	/* we assume the direction of the scroll as argument */
+	HRESULT errCode;
+	WORD* direction = (WORD*)pData;
+	continue_scrolling = false;
+	errCode = S_OK;
+	short scrolled = 0;
+	float scrolllength = 300;					// how much to scroll with one flick
+	short SBUI_length = 480;
+	float scroll_increment;
+	float scroll_increment_fas = 12;
+	long offscreen_imagelength;
+	BITMAP offscreen;
+	GetObject(h_offscreen, sizeof(BITMAP), &offscreen);
+	offscreen_imagelength = offscreen.bmHeight;
+	scroll_increment = scroll_increment_fas;
+	switch (*direction) {						// decide in which direction to scroll
+	case RZSBSDK_DIRECTION_UP:					// only scroll down to the end of the list
+		continue_scrolling = true;				// we now will start scrolling till we run out of momentum (scrolllength) - this flag is used to signal us to stop scrolling early
+		while (((scroll_offset + scroll_increment) <= (offscreen_imagelength - SBUI_length)) && ((scrolled + scroll_increment) <= scrolllength) && continue_scrolling) {
+			scroll_offset = scroll_offset + (long)scroll_increment;
+			scrolled = scrolled + (short)scroll_increment;
+			/* scroll slower at the end of the scroll - scale the scrolling speed/scroll increments - scrolled should at this point never be 0 */
+			scroll_increment = scroll_increment_fas - ((scrolled / scrolllength) * scroll_increment_fas) + 1;
+			renderplaylistUI();					// redraw SBUI
+			Sleep(1);
+		}
+		break;
+	case RZSBSDK_DIRECTION_DOWN:				// only scroll till the very top
+		continue_scrolling = true;				// we now will start scrolling till we run out of momentum (scrolllength) - this flag is used to signal us to stop scrolling early
+		while ((scroll_offset > 0) && ((scrolled + scroll_increment) <= scrolllength) && continue_scrolling) {
+			scroll_offset = scroll_offset - (long)scroll_increment;
+			scrolled = scrolled + (short)scroll_increment;
+			/* scroll slower at the end of the scroll - scale the scrolling speed/scroll increments */
+			scroll_increment = scroll_increment_fas - ((scrolled / scrolllength) * scroll_increment_fas) + 1;
 			renderplaylistUI();					// redraw SBUI
 			/* scroll slower at the end of the scroll - get slower in the third quarter of the scroll, even slower in the fourth quarter */
 			Sleep(1);
@@ -474,7 +452,7 @@ HRESULT padFlick(WORD direction) {				// handles switchblade input for scrolling
 	default:
 		break;
 	}
-	return retval;
+	return errCode;
 }
 
 HRESULT play_song_on_playlist(long playlist, WORD y_coordinates) {
@@ -534,12 +512,14 @@ HRESULT setAppState(short appstate) {
 		break;
 	case APPSTATE_PLAYLIST_START:
 		applicationstate = APPSTATE_PLAYLIST_START;
+		continue_scrolling = false;
 		selected_playlist = 0;
 		scroll_offset = 0;
 		showiTunesPlaylistInterface();
 		break;
 	case APPSTATE_PLAYLIST:
 		applicationstate = APPSTATE_PLAYLIST;
+		continue_scrolling = false;
 		scroll_offset = 0;
 		showiTunesPlaylistInterface();
 		break;
@@ -575,6 +555,7 @@ HRESULT refreshiTunesPlayList() {
 HRESULT showiTunesPlaylistInterface() {
 	HRESULT retval;
 	retval = S_OK;
+	continue_scrolling = false;
 	drawPlaylistOffscreen(selected_playlist);
 	renderplaylistUI();
 	retval = RzSBGestureSetCallback(reinterpret_cast<TouchpadGestureCallbackFunctionType>(TouchPadHandler_Playlist));
@@ -642,12 +623,14 @@ HRESULT STDMETHODCALLTYPE TouchPadHandler_Playlist(RZSBSDK_GESTURETYPE gesturety
 	HRESULT retval = S_OK;
 	switch (gesturetype) {
 	case RZSBSDK_GESTURE_FLICK:
+		continue_scrolling = false;				// stop scrolling upon pad press
 		retval = padFlick(z);					// call scrolling function
 		break;
 	case RZSBSDK_GESTURE_PRESS:
-												// stop scrolling upon pad press
+		continue_scrolling = false;				// stop scrolling upon pad press
 		break;
 	case RZSBSDK_GESTURE_TAP:					// play song upon tapping on it
+		continue_scrolling = false;				// stop scrolling upon pad press
 		retval = play_song_on_playlist(selected_playlist, y);
 		break;
 	default:
