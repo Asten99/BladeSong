@@ -2,23 +2,24 @@
 // Von Microsoft Visual C++ generierte Includedatei.
 // Verwendet durch BladeSong.rc
 //
-#define IDB_BITMAP1                     110
-#define IDB_BITMAP2                     111
-#define IDB_BITMAP3                     112
-#define IDB_BITMAP4                     113
-#define IDB_BITMAP5                     114
-#define IDB_BITMAP6                     115
-#define IDB_BITMAP7                     116
-#define IDB_BITMAP8                     117
-#define IDB_BITMAP9                     118
-#define IDB_BITMAP10                    119
-#define IDB_BITMAP11                    120
-#define IDB_BITMAP12                    121
-#define IDB_BITMAP13                    122
-#define IDB_BITMAP14                    123
-#define IDB_BITMAP15                    124
-#define IDB_BITMAP16                    125
+#define IDB_BUTTON_CONTROLS_GOLD        110
+#define IDB_BUTTON_CONTROLS_GREEN       111
+#define IDB_BUTTON_CONTROLS_GREY        112
+#define IDB_BUTTON_EXIT_GOLD            113
+#define IDB_BUTTON_EXIT_GREEN           114
+#define IDB_BUTTON_EXIT_GREY            115
+#define IDB_BUTTON_PLAYLIST_GOLD        116
+#define IDB_BUTTON_PLAYLIST_GREEN       117
+#define IDB_BUTTON_PLAYLIST_GREY        118
+#define IDB_CONTROLS_PAUSE_GOLD         119
+#define IDB_CONTROLS_PAUSE_GREEN        120
+#define IDB_CONTROLS_PAUSE_GREY         121
+#define IDB_CONTROLS_PLAY_GOLD          122
+#define IDB_CONTROLS_PLAYGREEN          123
+#define IDB_CONTROLS_PLAY_GREY          124
+#define IDB_FEATURE_NOT_IMPLEMENTED     125
 #define IDI_ICON1                       126
+#define IDI_APPICON                     126
 
 // Next default values for new objects
 // 
