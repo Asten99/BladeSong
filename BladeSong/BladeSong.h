@@ -25,6 +25,27 @@
 #define PL_STATE_SORTING 8						// state of an internal representation of a playlist - all data loaded, sorting tracks by name
 #define PL_STATE_READY 9						// state of an internal representation of a playlist - all data loaded, sorting finished, ready for usage
 
+#define SB_THEME_SWTOR_FGCOL_R 212
+#define SB_THEME_SWTOR_FGCOL_G 175
+#define SB_THEME_SWTOR_FGCOL_B 55
+#define SB_THEME_SWTOR_BGCOL_R 147
+#define SB_THEME_SWTOR_BGCOL_G 20
+#define SB_THEME_SWTOR_BGCOL_B 0
+
+#define SB_THEME_DSTALKER_FGCOL_R 83
+#define SB_THEME_DSTALKER_FGCOL_G 144
+#define SB_THEME_DSTALKER_FGCOL_B 83
+#define SB_THEME_DSTALKER_BGCOL_R 0
+#define SB_THEME_DSTALKER_BGCOL_G 167
+#define SB_THEME_DSTALKER_BGCOL_B 0
+
+#define SB_THEME_BLADE_FGCOL_R 60
+#define SB_THEME_BLADE_FGCOL_G 60
+#define SB_THEME_BLADE_FGCOL_B 73
+#define SB_THEME_BLADE_BGCOL_R 45
+#define SB_THEME_BLADE_BGCOL_G 45
+#define SB_THEME_BLADE_BGCOL_B 55
+
 const LPWSTR image_play_controls = (LPWSTR)L"..\\res\\controls_play.png";
 const LPWSTR image_pause_controls = (LPWSTR)L"..\\res\\controls_pause.png";
 const LPWSTR image_button_exit = (LPWSTR)L"..\\res\\button_exit.png";

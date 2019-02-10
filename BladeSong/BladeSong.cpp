@@ -3,7 +3,7 @@
 /*todo bladesong:
 
 -) alle bilder als ressorce einbinden, dann loadfromresource makro verwenden
--) playlists sortieren
+-) besseres scrollen in playlists ("verschiebe"n")
 -) ueberschrift bei playlists
 -) switchblade theme support einbaun
 -) lautstaerkeregelungs-fenster und knopf
@@ -244,13 +244,13 @@ HRESULT drawPlaylistOffscreen(short playlist) { // playlist 0 = list of playlist
 			neededlines = 800;
 		// we need the offscreen image to be exactly display size  -  make bigger offscreen image, then BitBlt into s second offscreen image that has 800x480
 		// allocate memory (moveable, fill with zeros): screenwidth * bpp, align to next 32 bit block * planes * lines
-		o_h_pixbuf = GlobalAlloc(GHND, (800 * 32 + 31) / 32 * 4 * neededlines);
+		o_h_pixbuf = GlobalAlloc(GHND, (SWITCHBLADE_TOUCHPAD_X_SIZE * 32 + 31) / 32 * 4 * neededlines);
 		// lock the memory, get a pointer to it
 		o_pixbuf = GlobalLock(o_h_pixbuf);
 		// get handle to an offscreen device context
 		hdcOffscreenDC = CreateCompatibleDC(NULL);
 		// create offscreen memory bitmap that will hold the full list of playlists
-		h_offscreen = CreateBitmap(800, neededlines, 1, 32, o_pixbuf);
+		h_offscreen = CreateBitmap(SWITCHBLADE_TOUCHPAD_X_SIZE, neededlines, 1, 32, o_pixbuf);
 		// select offscreen image into device context
 		SelectObject(hdcOffscreenDC, h_offscreen);
 		SetTextColor(hdcOffscreenDC, transl_RGB565(212, 175, 55));
@@ -294,22 +294,22 @@ HRESULT renderplaylistUI() {
 	retval = S_OK;
 	/* BITBLT to implement scrolling is here;
 	   create second image the exact size of the SBUI display to copy scrolled view portion of the offscreen image into */
-	neededlines = 480;						// we need to match the SBUI display
+	neededlines = SWITCHBLADE_TOUCHPAD_Y_SIZE;						// we need to match the SBUI display
 	hdcOffscreenviewportDC = CreateCompatibleDC(NULL);
 	/* allocate memory for the view portion copy of the offscreen image we drew in drawPlaylistOffscreen(short playlist) and create the corresponding BITMAP object*/
-	o_h_pixbuf_viewport = GlobalAlloc(GHND, (800 * 32 + 31) / 32 * 4 * neededlines);
+	o_h_pixbuf_viewport = GlobalAlloc(GHND, (SWITCHBLADE_TOUCHPAD_X_SIZE * 32 + 31) / 32 * 4 * neededlines); // should be SWITCHBLADE_TOUCHPAD_SIZE_IMAGEDATA
 	o_pixbuf_viewport = GlobalLock(o_h_pixbuf);
-	h_offscreen_viewport = CreateBitmap(800, 480, 1, 32, o_pixbuf_viewport);
+	h_offscreen_viewport = CreateBitmap(SWITCHBLADE_TOUCHPAD_X_SIZE, SWITCHBLADE_TOUCHPAD_Y_SIZE, 1, 32, o_pixbuf_viewport);
 	/* select the offscreen view portion buffer into its device context */
 	SelectObject(hdcOffscreenviewportDC, h_offscreen_viewport);
 	/* copy our viw portion of the offscreen image into our viewport image buffer */
-	BitBlt(hdcOffscreenviewportDC, 0, 0, 800, 480, hdcOffscreenDC, 0, scroll_offset, SRCCOPY);
+	BitBlt(hdcOffscreenviewportDC, 0, 0, SWITCHBLADE_TOUCHPAD_X_SIZE, SWITCHBLADE_TOUCHPAD_Y_SIZE, hdcOffscreenDC, 0, scroll_offset, SRCCOPY);
 	/* prepare the SBUI memory buffer to hold the image data we want to draw on the display */
 	memset(&sbuidisplay, 0, sizeof(RZSBSDK_BUFFERPARAMS));
 	GetObject(h_offscreen_viewport, sizeof(BITMAP), &offscreen_viewport);
 	bmi_offscreen.biSize = sizeof(BITMAPINFOHEADER);
-	bmi_offscreen.biWidth = 800;
-	bmi_offscreen.biHeight = 480;
+	bmi_offscreen.biWidth = SWITCHBLADE_TOUCHPAD_X_SIZE;
+	bmi_offscreen.biHeight = SWITCHBLADE_TOUCHPAD_Y_SIZE;
 	bmi_offscreen.biPlanes = 1;
 	bmi_offscreen.biBitCount = 32;
 	bmi_offscreen.biCompression = BI_RGB;
@@ -322,7 +322,7 @@ HRESULT renderplaylistUI() {
 	HDIB = GlobalAlloc(GHND, ((offscreen_viewport.bmWidth*bmi_offscreen.biBitCount + 31) / 32 * 4 * offscreen_viewport.bmHeight));
 	// set up SBUI display structure
 	sbuidisplay.PixelType = RGB565;	
-	sbuidisplay.DataSize = 800 * 480 * sizeof(WORD);
+	sbuidisplay.DataSize = SWITCHBLADE_TOUCHPAD_SIZE_IMAGEDATA;
 	sbuidisplay.pData = (BYTE *)GlobalLock(HDIB);
 	// copy the offscreen viewport image buffer into the SBUI display buffer
 	GetBitmapBits(h_offscreen_viewport, sbuidisplay.DataSize, sbuidisplay.pData);
@@ -358,49 +358,6 @@ HRESULT padTap(WORD x, WORD y) {				// handles switchblade touch input for playe
 	}
 	return retval;
 }
-
-/* Old Code - not threaded
-HRESULT padFlick(WORD direction) {				// handles switchblade input for scrolling in the playlists
-	HRESULT retval;
-	retval = S_OK;
-	short scrolled = 0;
-	float scrolllength = 300;					// how much to scroll with one flick
-	short SBUI_length = 480;
-	float scroll_increment;
-	float scroll_increment_fas = 12;
-	long offscreen_imagelength;
-	BITMAP offscreen;
-	GetObject(h_offscreen, sizeof(BITMAP), &offscreen);
-	offscreen_imagelength = offscreen.bmHeight;
-	scroll_increment = scroll_increment_fas;
-	switch (direction) {						// decide in which direction to scroll
-	case RZSBSDK_DIRECTION_UP:					// only scroll down to the end of the list
-		while (((scroll_offset + scroll_increment) <= (offscreen_imagelength - SBUI_length)) && ((scrolled + scroll_increment) <= scrolllength)) {
-			scroll_offset = scroll_offset + (long)scroll_increment;
-			scrolled = scrolled + (short)scroll_increment;
-			// scroll slower at the end of the scroll - scale the scrolling speed/scroll increments - scrolled should at this point never be 0
-			scroll_increment = scroll_increment_fas - ((scrolled / scrolllength) * scroll_increment_fas)+1;
-			renderplaylistUI();					// redraw SBUI
-			Sleep(1);
-		}
-		break;
-	case RZSBSDK_DIRECTION_DOWN:				// only scroll till the very top
-		while ((scroll_offset > 0) && ((scrolled + scroll_increment) <= scrolllength)) {
-			scroll_offset = scroll_offset - (long)scroll_increment;
-			scrolled = scrolled + (short)scroll_increment;
-			// scroll slower at the end of the scroll - scale the scrolling speed/scroll increments
-			scroll_increment = scroll_increment_fas - ((scrolled / scrolllength) * scroll_increment_fas)+1;
-			renderplaylistUI();					// redraw SBUI
-			// scroll slower at the end of the scroll - get slower in the third quarter of the scroll, even slower in the fourth quarter
-			Sleep(1);
-		}
-		break;
-	default:
-		break;
-	}
-	return retval;
-}
-*/
 
 HRESULT padFlick(WORD direction) {				// handles switchblade input for scrolling in the playlists
 	HRESULT retval;

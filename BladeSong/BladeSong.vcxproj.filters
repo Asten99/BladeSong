@@ -15,33 +15,74 @@
     </Filter>
   </ItemGroup>
   <ItemGroup>
-    <Image Include="..\..\xxx\res\button_controls.png">
-      <Filter>Ressourcendateien</Filter>
-    </Image>
-    <Image Include="..\..\xxx\res\button_exit.png">
-      <Filter>Ressourcendateien</Filter>
-    </Image>
-    <Image Include="..\..\xxx\res\button_list.png">
-      <Filter>Ressourcendateien</Filter>
-    </Image>
-    <Image Include="..\..\xxx\res\controls_pause.png">
-      <Filter>Ressourcendateien</Filter>
-    </Image>
-    <Image Include="..\..\xxx\res\controls_play.png">
-      <Filter>Ressourcendateien</Filter>
-    </Image>
-    <Image Include="..\..\xxx\res\feature_missing.png">
-      <Filter>Ressourcendateien</Filter>
-    </Image>
-  </ItemGroup>
-  <ItemGroup>
     <ClCompile Include="BladeSong.cpp">
       <Filter>Quelldateien</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="BladeSong.h">
-      <Filter>Quelldateien</Filter>
+    <ClInclude Include="resource.h">
+      <Filter>Headerdateien</Filter>
     </ClInclude>
+    <ClInclude Include="BladeSong.h">
+      <Filter>Headerdateien</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <ResourceCompile Include="BladeSong.rc">
+      <Filter>Ressourcendateien</Filter>
+    </ResourceCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <Image Include="..\res\button_controls_gold.bmp">
+      <Filter>Ressourcendateien</Filter>
+    </Image>
+    <Image Include="..\res\button_controls_green.bmp">
+      <Filter>Ressourcendateien</Filter>
+    </Image>
+    <Image Include="..\res\button_controls_grey.bmp">
+      <Filter>Ressourcendateien</Filter>
+    </Image>
+    <Image Include="..\res\button_exit_gold.bmp">
+      <Filter>Ressourcendateien</Filter>
+    </Image>
+    <Image Include="..\res\button_exit_green.bmp">
+      <Filter>Ressourcendateien</Filter>
+    </Image>
+    <Image Include="..\res\button_exit_grey.bmp">
+      <Filter>Ressourcendateien</Filter>
+    </Image>
+    <Image Include="..\res\button_list_gold.bmp">
+      <Filter>Ressourcendateien</Filter>
+    </Image>
+    <Image Include="..\res\button_list_green.bmp">
+      <Filter>Ressourcendateien</Filter>
+    </Image>
+    <Image Include="..\res\button_list_grey.bmp">
+      <Filter>Ressourcendateien</Filter>
+    </Image>
+    <Image Include="..\res\controls_pause_gold.bmp">
+      <Filter>Ressourcendateien</Filter>
+    </Image>
+    <Image Include="..\res\controls_pause_green.bmp">
+      <Filter>Ressourcendateien</Filter>
+    </Image>
+    <Image Include="..\res\controls_pause_grey.bmp">
+      <Filter>Ressourcendateien</Filter>
+    </Image>
+    <Image Include="..\res\controls_play_gold.bmp">
+      <Filter>Ressourcendateien</Filter>
+    </Image>
+    <Image Include="..\res\controls_play_green.bmp">
+      <Filter>Ressourcendateien</Filter>
+    </Image>
+    <Image Include="..\res\controls_play_grey.bmp">
+      <Filter>Ressourcendateien</Filter>
+    </Image>
+    <Image Include="..\res\feature_missing.bmp">
+      <Filter>Ressourcendateien</Filter>
+    </Image>
+    <Image Include="..\res\ProgramLogo.ico">
+      <Filter>Ressourcendateien</Filter>
+    </Image>
   </ItemGroup>
 </Project>
