@@ -3,18 +3,14 @@
 /*todo bladesong:
 
 -) alle bilder als ressorce einbinden, dann loadfromresource makro verwenden
--) besseres scrollen in playlists ("verschiebe"n")
+-) auswaehlen von liedern ist noch sehr zufaellig
 -) ueberschrift bei playlists
 -) switchblade theme support einbaun
 -) lautstaerkeregelungs-fenster und knopf
 -) songtitel scrollt in control fenster hin/her
 -) control fenster huebscher machen
 
-implementierungstips:
-
-state weiterscrollen=true waehrend scrollthread laeuft, er beendet sich wenn es false ist (zb. durch tap event)
-laden von songs - array von playlists mit malloc erstellen, dann pointer auf einzelne playlists an ladethread; im array gibt es eine zustandsvariable (nicht vorhanden/ladt/sortiert/fertig geladen) die auf fertigg geladen am ende vom ladethread gesetzt wird. angezeigt wird eine list erst wenn sie status fertig geladen hat
-abspielen von playlists? ev eine play() funktion bei playlists?*/
+*/
 
 HRESULT connectiTunes() {
 	/* start COM connectivity */
