@@ -84,9 +84,10 @@ bool iTunes_song_is_playing(IiTunes*);
 LPCWSTR getTrack_iTunes(IiTunes*);
 HRESULT getPlaylists_iTunes(IiTunes*);
 
-HRESULT padTap(WORD, WORD);
-HRESULT padFlick(WORD);
-HRESULT play_song_on_playlist(long, WORD);
+HRESULT padTap(WORD, WORD);						// tapping on UI (playing a song if touched/clicked)
+HRESULT padFlick(WORD);							// scrolling the UI on flicking it
+HRESULT padMove(WORD);							// scrolling the UI on moving your finger on it for a very short duration 
+HRESULT play_song_on_playlist(long, WORD);		// calculates wether user tapped a playlist or song (and which one) and either makes calls to display the selected playlist or play the song
 HRESULT initSwitchbladeControls();
 HRESULT setAppState(short);
 HRESULT showiTunesControlInterface();
@@ -94,8 +95,10 @@ HRESULT showiTunesPlaylistInterface();
 HRESULT refreshiTunesPlayList();
 DWORD WINAPI getiTunesPlaylist(LPVOID);			// playlist iTunes COM enumeration thread
 DWORD WINAPI scrollUI(LPVOID);					// playlist browser scroll thread
+DWORD WINAPI flickTimer(LPVOID);					// immunity timer during flick for move gestures
 int trackComp(const void *t1, const void *t2);	// compares two tracks along their names and returns wich is to be ordered first for sorting (qsort)
 HRESULT preloadResources();						// preloads Resources according to selected theme
+HRESULT storeLastUITapCoord(WORD, WORD);		// stores the last point of touch contact on the display to calculate moving on the display
 
 const short fontsize = 17;						// playlist font size
 const short spacing = 5;						// playlist padding
@@ -120,7 +123,8 @@ HBITMAP hbutton_exit;							// exit button image
 HBITMAP hbutton_playlist;						// show playlists button image
 HBITMAP hcontrols_pause;						// controls UI image - playback paused
 HBITMAP hcontrols_play;							// controls UI image - playback commencing
-
+WORD old_x;										// previous x axis coordinate of last touch point of user interaction on UI
+WORD old_y;										// previous y axis coordinate of last touch point of user interaction on UI
 BITMAPINFOHEADER bmi_offscreen;					// Handle to said image
-
+bool flick_in_progress;							// to check wether user initated a flick - we do not want to move the UI during that
 RZSBSDK_BUFFERPARAMS sbuidisplay;				// structure to implement SBUI drawing

@@ -366,6 +366,35 @@ HRESULT padFlick(WORD direction) {				// handles switchblade input for scrolling
 	return retval;
 }
 
+HRESULT padMove(WORD new_y) {					// as a result of moving the finger on the UI display, we want to scroll to the point the finger was moved
+	HRESULT retval;
+	retval = S_OK;
+	short to_scroll;
+	to_scroll = (short)new_y - (short)old_y;
+	short scroll_increment = 4;
+	short scrolled = 0;
+	if (new_y - old_y < 0) {
+		scroll_offset += scroll_increment;
+		renderplaylistUI();
+		Sleep(1);
+	}
+	else {
+		scroll_offset -= scroll_increment;
+		renderplaylistUI();
+		Sleep(1);
+	}
+	return retval;
+}
+
+DWORD WINAPI flickTimer(LPVOID pData) {			// when we initiate a flick, we do not want to scroll/move the ui during the flick
+	HRESULT errCode;
+	errCode = S_OK;
+	flick_in_progress = true;
+	Sleep(20);
+	flick_in_progress = false;
+	return errCode;
+}
+
 DWORD WINAPI scrollUI(LPVOID pData) {
 	/* we assume the direction of the scroll as argument */
 	HRESULT errCode;
@@ -394,7 +423,7 @@ DWORD WINAPI scrollUI(LPVOID pData) {
 			Sleep(1);
 		}
 		break;
-	case RZSBSDK_DIRECTION_DOWN:				// only scroll till the very top
+	case RZSBSDK_DIRECTION_DOWN:				// only scroll till the very bottom
 		continue_scrolling = true;				// we now will start scrolling till we run out of momentum (scrolllength) - this flag is used to signal us to stop scrolling early
 		while ((scroll_offset > 0) && ((scrolled + scroll_increment) <= scrolllength) && continue_scrolling) {
 			scroll_offset = scroll_offset - (long)scroll_increment;
@@ -465,6 +494,8 @@ HRESULT initSwitchbladeControls() {				// paint common user interface
 	LONG test;
 	// resbitmapDC = NULL;
 	preloadResources();							// preload image handles depending upon selected sbui theme
+	old_x = 0;
+	old_y = 0;
 	/* set up the buttons for the control and playlist interface as well as an exit button */
 	/* allocate buffer memory */
 	// resbitmapDC = CreateCompatibleDC(NULL);
@@ -515,11 +546,15 @@ HRESULT setAppState(short appstate) {
 		break;
 	case APPSTATE_CONTROLS_PLAY:
 		applicationstate = APPSTATE_CONTROLS_PLAY;
+		// showiTunesControlInterface();
 		retval = RzSBSetImageTouchpad(image_play_controls);
+		retval = RzSBGestureSetCallback(reinterpret_cast<TouchpadGestureCallbackFunctionType>(TouchPadHandler_Controls));
 		break;
 	case APPSTATE_CONTROLS_PAUSE:
 		applicationstate = APPSTATE_CONTROLS_PAUSE;
+		// showiTunesControlInterface();
 		retval = RzSBSetImageTouchpad(image_pause_controls);
+		retval = RzSBGestureSetCallback(reinterpret_cast<TouchpadGestureCallbackFunctionType>(TouchPadHandler_Controls));
 		break;
 	case APPSTATE_PLAYLIST_START:
 		applicationstate = APPSTATE_PLAYLIST_START;
@@ -570,6 +605,16 @@ HRESULT showiTunesPlaylistInterface() {
 	drawPlaylistOffscreen(selected_playlist);
 	renderplaylistUI();
 	retval = RzSBGestureSetCallback(reinterpret_cast<TouchpadGestureCallbackFunctionType>(TouchPadHandler_Playlist));
+	return retval;
+}
+
+/* Stores the last point of contact on the UI for later scrolling calculations */
+
+HRESULT storeLastUITapCoord(WORD x, WORD y) {
+	HRESULT retval;
+	retval = S_OK;
+	old_x = x;
+	old_y = y;
 	return retval;
 }
 
@@ -635,14 +680,23 @@ HRESULT STDMETHODCALLTYPE TouchPadHandler_Playlist(RZSBSDK_GESTURETYPE gesturety
 	switch (gesturetype) {
 	case RZSBSDK_GESTURE_FLICK:
 		continue_scrolling = false;				// stop scrolling upon pad press
+		CreateThread(NULL, 0, flickTimer, NULL, 0, NULL);
 		retval = padFlick(z);					// call scrolling function
 		break;
 	case RZSBSDK_GESTURE_PRESS:
 		continue_scrolling = false;				// stop scrolling upon pad press
+		storeLastUITapCoord(x, y);
+		break;
+	case RZSBSDK_GESTURE_MOVE:
+		continue_scrolling = false;				// stop scrolling upon pad press
+		if (!flick_in_progress)					// do not interpret move gesture while flicking
+			retval = padMove(y);
+		storeLastUITapCoord(x, y);
 		break;
 	case RZSBSDK_GESTURE_TAP:					// play song upon tapping on it
 		continue_scrolling = false;				// stop scrolling upon pad press
-		retval = play_song_on_playlist(selected_playlist, y);
+		if (!flick_in_progress)					// stop scrolling on pad press, but do not select song for playback
+			retval = play_song_on_playlist(selected_playlist, y);
 		break;
 	default:
 		break;
@@ -660,6 +714,7 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
 
 	hRes = S_OK;
 	hRes = connectiTunes();
+	Sleep(5);
 	if (hRes == S_OK) {
 		if (RzSBStart() == RZSB_OK) {				// start up razer switchblade connectivity
 			setAppState(APPSTATE_STARTUP);
