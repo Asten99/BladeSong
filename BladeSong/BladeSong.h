@@ -14,6 +14,8 @@
 #include "iTunesCOMInterface.h"
 #include "iTunesCOMInterface_i.c"
 
+#include "resource.h"
+
 #define APPSTATE_STARTUP 0						// default application state (unknown/loading state)
 #define APPSTATE_CONTROLS_PLAY 1				// the itunes play controls with play button are displayed by the application
 #define APPSTATE_CONTROLS_PAUSE 2				// the itunes play controls with pause button are displayed by the application
@@ -93,7 +95,7 @@ HRESULT refreshiTunesPlayList();
 DWORD WINAPI getiTunesPlaylist(LPVOID);			// playlist iTunes COM enumeration thread
 DWORD WINAPI scrollUI(LPVOID);					// playlist browser scroll thread
 int trackComp(const void *t1, const void *t2);	// compares two tracks along their names and returns wich is to be ordered first for sorting (qsort)
-
+HRESULT preloadResources();						// preloads Resources according to selected theme
 
 const short fontsize = 17;						// playlist font size
 const short spacing = 5;						// playlist padding
@@ -111,7 +113,14 @@ HBITMAP h_offscreen;							// bitmap handle for the offscreen image
 void *o_pixbuf;									// memory for the actual offscreen image
 HANDLE o_h_pixbuf;								// handle to said memory
 bool continue_scrolling;						// flag to tell the scrolling thread to stop
+HICON AppIcon;									// full-size App Icon
+HICON AppIconSM;								// small-size App Icon
+HBITMAP hbutton_controls;						// show controls button image
+HBITMAP hbutton_exit;							// exit button image
+HBITMAP hbutton_playlist;						// show playlists button image
+HBITMAP hcontrols_pause;						// controls UI image - playback paused
+HBITMAP hcontrols_play;							// controls UI image - playback commencing
 
-BITMAPINFOHEADER bmi_offscreen;				// Handle to said image
+BITMAPINFOHEADER bmi_offscreen;					// Handle to said image
 
-RZSBSDK_BUFFERPARAMS sbuidisplay;			// structure to implement SBUI drawing
+RZSBSDK_BUFFERPARAMS sbuidisplay;				// structure to implement SBUI drawing

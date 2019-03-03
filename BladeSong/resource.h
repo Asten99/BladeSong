@@ -16,9 +16,9 @@
 #define IDB_CONTROLS_PAUSE_GREY         121
 #define IDB_CONTROLS_PLAY_GOLD          122
 #define IDB_CONTROLS_PLAYGREEN          123
+#define IDB_CONTROLS_PLAY_GREEN         123
 #define IDB_CONTROLS_PLAY_GREY          124
 #define IDB_FEATURE_NOT_IMPLEMENTED     125
-#define IDI_ICON1                       126
 #define IDI_APPICON                     126
 
 // Next default values for new objects

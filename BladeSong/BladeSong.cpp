@@ -297,7 +297,7 @@ HRESULT renderplaylistUI() {
 	neededlines = SWITCHBLADE_TOUCHPAD_Y_SIZE;						// we need to match the SBUI display
 	hdcOffscreenviewportDC = CreateCompatibleDC(NULL);
 	/* allocate memory for the view portion copy of the offscreen image we drew in drawPlaylistOffscreen(short playlist) and create the corresponding BITMAP object*/
-	o_h_pixbuf_viewport = GlobalAlloc(GHND, (SWITCHBLADE_TOUCHPAD_X_SIZE * 32 + 31) / 32 * 4 * neededlines); // should be SWITCHBLADE_TOUCHPAD_SIZE_IMAGEDATA
+	o_h_pixbuf_viewport = GlobalAlloc(GHND, (SWITCHBLADE_TOUCHPAD_X_SIZE * 32 + 31) / 32 * 4 * neededlines); // should be SWITCHBLADE_TOUCHPAD_SIZE_IMAGEDATA?
 	o_pixbuf_viewport = GlobalLock(o_h_pixbuf);
 	h_offscreen_viewport = CreateBitmap(SWITCHBLADE_TOUCHPAD_X_SIZE, SWITCHBLADE_TOUCHPAD_Y_SIZE, 1, 32, o_pixbuf_viewport);
 	/* select the offscreen view portion buffer into its device context */
@@ -307,7 +307,7 @@ HRESULT renderplaylistUI() {
 	/* prepare the SBUI memory buffer to hold the image data we want to draw on the display */
 	memset(&sbuidisplay, 0, sizeof(RZSBSDK_BUFFERPARAMS));
 	GetObject(h_offscreen_viewport, sizeof(BITMAP), &offscreen_viewport);
-	bmi_offscreen.biSize = sizeof(BITMAPINFOHEADER);
+	/* bmi_offscreen.biSize = sizeof(BITMAPINFOHEADER);
 	bmi_offscreen.biWidth = SWITCHBLADE_TOUCHPAD_X_SIZE;
 	bmi_offscreen.biHeight = SWITCHBLADE_TOUCHPAD_Y_SIZE;
 	bmi_offscreen.biPlanes = 1;
@@ -317,9 +317,9 @@ HRESULT renderplaylistUI() {
 	bmi_offscreen.biXPelsPerMeter = 0;
 	bmi_offscreen.biYPelsPerMeter = 0;
 	bmi_offscreen.biClrUsed = 0;
-	bmi_offscreen.biClrImportant = 0;
+	bmi_offscreen.biClrImportant = 0; */
 	// Allocate Memory for SBUI pixel Buffer
-	HDIB = GlobalAlloc(GHND, ((offscreen_viewport.bmWidth*bmi_offscreen.biBitCount + 31) / 32 * 4 * offscreen_viewport.bmHeight));
+	HDIB = GlobalAlloc(GHND, ((offscreen_viewport.bmWidth*offscreen_viewport.bmBitsPixel + 31) / 32 * 4 * offscreen_viewport.bmHeight));
 	// set up SBUI display structure
 	sbuidisplay.PixelType = RGB565;	
 	sbuidisplay.DataSize = SWITCHBLADE_TOUCHPAD_SIZE_IMAGEDATA;
@@ -433,9 +433,63 @@ HRESULT play_song_on_playlist(long playlist, WORD y_coordinates) {
 	return retval;
 }
 
+HRESULT preloadResources() {
+	HRESULT retval = S_OK;
+
+	AppIcon = (HICON)LoadImage(GetModuleHandle(NULL), MAKEINTRESOURCE(IDI_APPICON), IMAGE_ICON, GetSystemMetrics(SM_CXICON), GetSystemMetrics(SM_CYICON), LR_DEFAULTCOLOR);
+	AppIconSM = (HICON)LoadImage(GetModuleHandle(NULL), MAKEINTRESOURCE(IDI_APPICON), IMAGE_ICON, GetSystemMetrics(SM_CXSMICON), GetSystemMetrics(SM_CYSMICON), LR_DEFAULTCOLOR);
+	hbutton_controls = (HBITMAP)LoadImage(GetModuleHandle(NULL), MAKEINTRESOURCE(IDB_BUTTON_CONTROLS_GOLD), IMAGE_BITMAP, SWITCHBLADE_DYNAMIC_KEY_X_SIZE, SWITCHBLADE_DYNAMIC_KEY_Y_SIZE, LR_DEFAULTCOLOR);
+	hbutton_exit = (HBITMAP)LoadImage(GetModuleHandle(NULL), MAKEINTRESOURCE(IDB_BUTTON_EXIT_GOLD), IMAGE_BITMAP, SWITCHBLADE_DYNAMIC_KEY_X_SIZE, SWITCHBLADE_DYNAMIC_KEY_Y_SIZE, LR_DEFAULTCOLOR);
+	hbutton_playlist = (HBITMAP)LoadImage(GetModuleHandle(NULL), MAKEINTRESOURCE(IDB_BUTTON_PLAYLIST_GOLD), IMAGE_BITMAP, SWITCHBLADE_DYNAMIC_KEY_X_SIZE, SWITCHBLADE_DYNAMIC_KEY_Y_SIZE, LR_DEFAULTCOLOR);
+	hcontrols_pause = (HBITMAP)LoadImage(GetModuleHandle(NULL), MAKEINTRESOURCE(IDB_CONTROLS_PAUSE_GOLD), IMAGE_BITMAP, SWITCHBLADE_TOUCHPAD_X_SIZE, SWITCHBLADE_TOUCHPAD_Y_SIZE, LR_DEFAULTCOLOR);
+	hcontrols_play = (HBITMAP)LoadImage(GetModuleHandle(NULL), MAKEINTRESOURCE(IDB_CONTROLS_PLAY_GOLD), IMAGE_BITMAP, SWITCHBLADE_TOUCHPAD_X_SIZE, SWITCHBLADE_TOUCHPAD_Y_SIZE, LR_DEFAULTCOLOR);
+	return retval;
+}
+
+HRESULT cleanUp() {
+	HRESULT  retval = S_OK;
+	DeleteObject(hbutton_controls);
+	DeleteObject(hbutton_exit);
+	DeleteObject(hbutton_playlist);
+	DeleteObject(hcontrols_pause);
+	DeleteObject(hcontrols_play);
+	DestroyIcon(AppIcon);
+	DestroyIcon(AppIconSM);
+	return retval;
+}
+
 HRESULT initSwitchbladeControls() {				// paint common user interface
 	HRESULT retval = S_OK;
+	// BYTE* h_resbuffer;
+	// HDC resbitmapDC;
+	LONG test;
+	// resbitmapDC = NULL;
+	preloadResources();							// preload image handles depending upon selected sbui theme
 	/* set up the buttons for the control and playlist interface as well as an exit button */
+	/* allocate buffer memory */
+	// resbitmapDC = CreateCompatibleDC(NULL);
+	// h_resbuffer = (BYTE*)malloc((SWITCHBLADE_DYNAMIC_KEY_X_SIZE *32 + 31) / 32 * 4* SWITCHBLADE_DYNAMIC_KEY_Y_SIZE);
+	// SelectObject(resbitmapDC, hbutton_controls);
+		
+	
+	
+	
+	
+	/* paint exit button - Code not working! - we overload with RzSBSetImageDynamicKey */
+	//BitBlt(copyImageDC, 0, 0, SWITCHBLADE_DYNAMIC_KEY_X_SIZE, SWITCHBLADE_DYNAMIC_KEY_Y_SIZE, resbitmapDC, 0, 0, DSTINVERT);
+	memset(&sbuidisplay, 0, sizeof(RZSBSDK_BUFFERPARAMS));
+	sbuidisplay.PixelType = RGB565;
+	sbuidisplay.DataSize = SWITCHBLADE_DK_SIZE_IMAGEDATA;
+	sbuidisplay.pData = (BYTE*)malloc(SWITCHBLADE_DK_SIZE_IMAGEDATA);
+	memset(sbuidisplay.pData, 0, sizeof(SWITCHBLADE_DK_SIZE_IMAGEDATA));
+	test = GetBitmapBits(hbutton_exit, sbuidisplay.DataSize, sbuidisplay.pData);
+	
+	RzSBRenderBuffer(RZSBSDK_DISPLAY_DK_5, &sbuidisplay);
+
+
+	/* paint playlist button */
+	/* paint music controls button */
+
 	retval = RzSBSetImageDynamicKey(RZSBSDK_DK_5, RZSBSDK_KEYSTATE_UP, image_button_exit);
 	retval = RzSBSetImageDynamicKey(RZSBSDK_DK_6, RZSBSDK_KEYSTATE_UP, image_button_controls);
 	retval = RzSBSetImageDynamicKey(RZSBSDK_DK_7, RZSBSDK_KEYSTATE_UP, image_button_list);
