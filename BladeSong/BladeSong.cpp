@@ -2,14 +2,11 @@
 
 /*todo bladesong:
 
--) alle bilder als ressorce einbinden, dann loadfromresource makro verwenden
 -) auswaehlen von liedern ist noch sehr zufaellig
 -) ueberschrift bei playlists
--) switchblade theme support einbaun
 -) lautstaerkeregelungs-fenster und knopf
 -) songtitel scrollt in control fenster hin/her
 -) control fenster huebscher machen
-
 */
 
 HRESULT connectiTunes() {
@@ -20,9 +17,32 @@ HRESULT connectiTunes() {
 }
 
 HRESULT disconnectiTunes() {
+	continue_scrolling = false;
+	/* not freed:
+		allSongs[*playlistno]->tracks = (trackData **)malloc(num_songs_per_playlist * sizeof(trackData));
+		allSongs[*playlistno]->tracks[j] = (trackData *)malloc(sizeof(trackData));
+	*/
+	for (long i = 0; i < num_playlists; i = i + 1) {
+		TerminateThread(threadlist_getplaylists[i], S_OK);
+		free(allSongs[i]);
+	}
+	free(threadlist_getplaylists);
+	TerminateThread(scrollthread, S_OK);
+	TerminateThread(scrollimmunitytimerthread, S_OK);
 	free(allSongs);								// release memory block holding song titles	
 	myITunes->Release();						// release iTunes COM object hold by this app
 	RzSBStop();									// release switchblade control
+	if (o_h_pixbuf != NULL) {
+		GlobalUnlock(o_h_pixbuf);
+		GlobalFree(o_h_pixbuf);
+	}
+	DeleteObject(hbutton_controls);
+	DeleteObject(hbutton_exit);
+	DeleteObject(hbutton_playlist);
+	DeleteObject(hcontrols_pause);
+	DeleteObject(hcontrols_play);
+	DestroyIcon(AppIcon);
+	DestroyIcon(AppIconSM);
 	CoUninitialize();							// stop COM connectivity
 	return S_OK;
 }
@@ -96,7 +116,6 @@ HRESULT getPlaylists_iTunes(IiTunes* iITunes) {
 	HRESULT errCode;
 	IITSource *iTunesLibrary;
 	IITPlaylistCollection *workingPlaylists;
-	HANDLE *threadlist;
 	long workingSourceID;
 	workingSourceID = 0;
 	num_playlists = 0;
@@ -114,11 +133,11 @@ HRESULT getPlaylists_iTunes(IiTunes* iITunes) {
 	if (errCode != S_OK)
 		return errCode;
 	allSongs = (playlistData **)malloc(num_playlists * sizeof(playlistData**));
-	threadlist = (HANDLE *)malloc(num_playlists * sizeof(HANDLE));
+	threadlist_getplaylists = (HANDLE *)malloc(num_playlists * sizeof(HANDLE));
 	for (long i = 0; i < num_playlists; i = i + 1) {
 		allSongs[i] = (playlistData *)malloc(sizeof(playlistData));
 		allSongs[i]->internalID = i;
-		threadlist[i] = CreateThread(NULL, 0, getiTunesPlaylist, &allSongs[i]->internalID, 0,NULL);
+		threadlist_getplaylists[i] = CreateThread(NULL, 0, getiTunesPlaylist, &allSongs[i]->internalID, 0,NULL);
 	}
 	workingPlaylists->Release();
 	iTunesLibrary->Release();
@@ -146,7 +165,7 @@ DWORD WINAPI getiTunesPlaylist(LPVOID pData) {
 	workingtrackDatabaseID = 0;
 	workingSourceID = 0;
 	errCode = S_OK;
-	allSongs[*playlistno] = (playlistData *)malloc(sizeof(playlistData));
+	// allSongs[*playlistno] = (playlistData *)malloc(sizeof(playlistData));
 	allSongs[*playlistno]->loadState = PL_STATE_NOT_LOADED;
 	/* Traverste the iTunes COM object to get to our desired playlist */
 	errCode = myITunes->get_LibrarySource(&iTunesLibrary);
@@ -231,30 +250,32 @@ HRESULT drawPlaylistOffscreen(short playlist) { // playlist 0 = list of playlist
 	if (playlist > num_playlists)
 		return E_FAIL;
 	else {
+		// get handle to an offscreen device context
+		hdcOffscreenDC = CreateCompatibleDC(NULL);
 		/* calculate the number of lines the offscreen image needs to hold based on font size, spacing between lines and needed number of lines */
 		if (playlist == 0)
-			neededlines = num_playlists * (fontsize + spacing) + spacing;
+			neededlines = (num_playlists + 1) * (fontsize + spacing) + spacing;
 		else
 			neededlines = allSongs[playlist]->membercount*(fontsize + spacing) + spacing;
-		if (neededlines < 800)					// todo: this should not be necessary
-			neededlines = 800;
+		o_image_lines = neededlines;
 		// we need the offscreen image to be exactly display size  -  make bigger offscreen image, then BitBlt into s second offscreen image that has 800x480
 		// allocate memory (moveable, fill with zeros): screenwidth * bpp, align to next 32 bit block * planes * lines
+		if (o_h_pixbuf != NULL)
+			GlobalFree(o_h_pixbuf);
 		o_h_pixbuf = GlobalAlloc(GHND, (SWITCHBLADE_TOUCHPAD_X_SIZE * 32 + 31) / 32 * 4 * neededlines);
 		// lock the memory, get a pointer to it
 		o_pixbuf = GlobalLock(o_h_pixbuf);
-		// get handle to an offscreen device context
-		hdcOffscreenDC = CreateCompatibleDC(NULL);
-		// create offscreen memory bitmap that will hold the full list of playlists
+			// create offscreen memory bitmap that will hold the full list of playlists
 		h_offscreen = CreateBitmap(SWITCHBLADE_TOUCHPAD_X_SIZE, neededlines, 1, 32, o_pixbuf);
 		// select offscreen image into device context
 		SelectObject(hdcOffscreenDC, h_offscreen);
 		SetTextColor(hdcOffscreenDC, transl_RGB565(212, 175, 55));
-		hFont = CreateFont(25, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_OUTLINE_PRECIS, CLIP_DEFAULT_PRECIS, ANTIALIASED_QUALITY, DEFAULT_PITCH, TEXT("razer regular"));
+		hFont = CreateFont(fontsize, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_OUTLINE_PRECIS, CLIP_DEFAULT_PRECIS, ANTIALIASED_QUALITY, DEFAULT_PITCH, TEXT("razer regular"));
 		SelectObject(hdcOffscreenDC, hFont);
 		SetBkColor(hdcOffscreenDC, transl_RGB565(0, 0, 0));
 		if (playlist == 0) {					// copy only names of playlists
 			/* lenght of a playlist name name in the memory structutre: _tcslen(allSongs[playlist]->name()) */
+			TextOut(hdcOffscreenDC, spacing, spacing, L"Playlists", 9);
 			for (long i = 0; i < num_playlists; i = i + 1) {
 				chars_per_line = _tcslen(allSongs[i]->name);
 				TextOut(hdcOffscreenDC, spacing, (spacing + (fontsize + spacing)*(i + 1)), allSongs[i]->name, chars_per_line > max_chars_per_line ? max_chars_per_line : chars_per_line);
@@ -262,10 +283,11 @@ HRESULT drawPlaylistOffscreen(short playlist) { // playlist 0 = list of playlist
 		} else {								// copy names of songs of the specified playlist
 					/* check wether songs are loaded and ready for display */
 			if (allSongs[playlist]->loadState != PL_STATE_READY) {
-				TextOut(hdcOffscreenDC, spacing, (spacing + (fontsize + spacing)), L"loading playlist...\0", chars_per_line > max_chars_per_line ? max_chars_per_line : chars_per_line);
+				TextOut(hdcOffscreenDC, spacing, (spacing + (fontsize + spacing)), L"loading playlist...", 19);
 			}
 			else {
 				/* lenght of a song name in the memory structutre: _tcslen((allSongs[playlist]->tracks[i]->name()) */
+				TextOut(hdcOffscreenDC, spacing, spacing, allSongs[playlist]->name, _tcslen(allSongs[playlist]->name));
 				for (long i = 0; i < allSongs[playlist]->membercount; i = i + 1) {
 					chars_per_line = _tcslen(allSongs[playlist]->tracks[i]->name);
 					TextOut(hdcOffscreenDC, spacing, (spacing + (fontsize + spacing)*(i + 1)), allSongs[playlist]->tracks[i]->name, chars_per_line > max_chars_per_line ? max_chars_per_line : chars_per_line);	//(wchar_t *)  // find a way to cap string lenght correctly - not bigger than strlen, not bigger than screen size
@@ -274,6 +296,7 @@ HRESULT drawPlaylistOffscreen(short playlist) { // playlist 0 = list of playlist
 		}
 		DeleteObject(hFont);
 	}
+	GlobalUnlock(o_h_pixbuf);
 	return retval;
 }
 
@@ -303,17 +326,6 @@ HRESULT renderplaylistUI() {
 	/* prepare the SBUI memory buffer to hold the image data we want to draw on the display */
 	memset(&sbuidisplay, 0, sizeof(RZSBSDK_BUFFERPARAMS));
 	GetObject(h_offscreen_viewport, sizeof(BITMAP), &offscreen_viewport);
-	/* bmi_offscreen.biSize = sizeof(BITMAPINFOHEADER);
-	bmi_offscreen.biWidth = SWITCHBLADE_TOUCHPAD_X_SIZE;
-	bmi_offscreen.biHeight = SWITCHBLADE_TOUCHPAD_Y_SIZE;
-	bmi_offscreen.biPlanes = 1;
-	bmi_offscreen.biBitCount = 32;
-	bmi_offscreen.biCompression = BI_RGB;
-	bmi_offscreen.biSizeImage = 0;
-	bmi_offscreen.biXPelsPerMeter = 0;
-	bmi_offscreen.biYPelsPerMeter = 0;
-	bmi_offscreen.biClrUsed = 0;
-	bmi_offscreen.biClrImportant = 0; */
 	// Allocate Memory for SBUI pixel Buffer
 	HDIB = GlobalAlloc(GHND, ((offscreen_viewport.bmWidth*offscreen_viewport.bmBitsPixel + 31) / 32 * 4 * offscreen_viewport.bmHeight));
 	// set up SBUI display structure
@@ -324,6 +336,10 @@ HRESULT renderplaylistUI() {
 	GetBitmapBits(h_offscreen_viewport, sbuidisplay.DataSize, sbuidisplay.pData);
 	// let the SBUI draw from its image structure
 	RzSBRenderBuffer(RZSBSDK_DISPLAY_WIDGET, &sbuidisplay);
+	GlobalUnlock(HDIB);
+	GlobalFree(HDIB);
+	GlobalUnlock(o_h_pixbuf);
+	GlobalFree(o_h_pixbuf_viewport);
 	return retval;
 }
 
@@ -358,7 +374,7 @@ HRESULT padTap(WORD x, WORD y) {				// handles switchblade touch input for playe
 HRESULT padFlick(WORD direction) {				// handles switchblade input for scrolling in the playlists
 	HRESULT retval;
 	retval = S_OK;
-	CreateThread(NULL, 0, scrollUI, &direction, 0, NULL);
+	scrollthread = CreateThread(NULL, 0, scrollUI, &direction, 0, NULL);
 	return retval;
 }
 
@@ -366,18 +382,32 @@ HRESULT padMove(WORD new_y) {					// as a result of moving the finger on the UI 
 	HRESULT retval;
 	retval = S_OK;
 	short to_scroll;
-	to_scroll = (short)new_y - (short)old_y;
-	short scroll_increment = 4;
-	short scrolled = 0;
-	if (new_y - old_y < 0) {
-		scroll_offset += scroll_increment;
-		renderplaylistUI();
-		Sleep(1);
-	}
-	else {
-		scroll_offset -= scroll_increment;
-		renderplaylistUI();
-		Sleep(1);
+	if (moving == false) {
+		moving = true;
+		to_scroll = (short)new_y - (short)old_y;
+		short scroll_increment = 8;
+		short scrolled = 0;
+		if ((new_y - old_y) < 0) {
+			if ((scroll_offset + scroll_increment) <= (o_image_lines - SWITCHBLADE_TOUCHPAD_Y_SIZE/3)) {
+				scroll_offset += scroll_increment;
+				renderplaylistUI();
+//				wchar_t debugbuf[512];
+//				wsprintf(debugbuf, L"\nscroll_increment: %d\nscroll_offset: %d\no_image_lines: %d\n", scroll_increment, scroll_offset, o_image_lines);
+//				OutputDebugStringW(debugbuf);
+				Sleep(1);
+			}
+		}
+		else {
+			if ((scroll_offset - scroll_increment) >= 0) {
+				scroll_offset -= scroll_increment;
+				renderplaylistUI();
+//				wchar_t debugbuf[512];
+//				wsprintf(debugbuf, L"\nscroll_increment: %d\nscroll_offset: %d\no_image_lines: %d\n", scroll_increment, scroll_offset, o_image_lines);
+//				OutputDebugStringW(debugbuf);
+				Sleep(1);
+			}
+		}
+		moving = false;
 	}
 	return retval;
 }
@@ -440,19 +470,24 @@ DWORD WINAPI scrollUI(LPVOID pData) {
 HRESULT play_song_on_playlist(long playlist, WORD y_coordinates) {
 	HRESULT retval = S_OK;
 	long selection;
-	long true_y = scroll_offset + y_coordinates - spacing - 72;
+	double true_y = (double)scroll_offset + (double)y_coordinates / (double)1.98;
 	if (true_y >= 0) {
 		if (selected_playlist == 0) {
-			selection = true_y / (45);
+			selection = round((true_y / (double)(fontsize + spacing))) -2;
+			if (selection < 0)
+				selection = 0;
 			selected_playlist = (short)selection;
 			setAppState(APPSTATE_PLAYLIST);
 		}
 		else {
-			selection = true_y / (45);
+			selection = round( true_y / (double)(fontsize + spacing) )-2;
+			if (selection < 0)
+				selection = 0;
 			myITunes->AddRef();
 			play_iTunes_song(myITunes, (long)playlist, selection);
-			// OutputDebugStringW(L"\n");
-			// OutputDebugStringW((LPWSTR)allSongs[playlist]->tracks[selection]->name);
+//			wchar_t debugbuf[512];
+//			swprintf(debugbuf, 512, L"\ntrue_y: %f scroll_offset: %d y_coordinates: %d selection = %d\n", true_y, scroll_offset, y_coordinates, selection);
+//			OutputDebugStringW(debugbuf);
 		}
 	}
 	return retval;
@@ -460,66 +495,147 @@ HRESULT play_song_on_playlist(long playlist, WORD y_coordinates) {
 
 HRESULT preloadResources() {
 	HRESULT retval = S_OK;
-
+	RZSBSDK_QUERYCAPABILITIES pSBSDKCap;
+	retval = RzSBQueryCapabilities(&pSBSDKCap);	// query pSBSDKCap for Razer Switchblade type and load themed resourced accordingly
+	switch (hwtheme) {
+		case SB_THEME_BLADE:
+			hbutton_controls = (HBITMAP)LoadImage(GetModuleHandle(NULL), MAKEINTRESOURCE(IDB_BUTTON_CONTROLS_GREY), IMAGE_BITMAP, SWITCHBLADE_DYNAMIC_KEY_X_SIZE, SWITCHBLADE_DYNAMIC_KEY_Y_SIZE, LR_DEFAULTCOLOR);
+			hbutton_exit = (HBITMAP)LoadImage(GetModuleHandle(NULL), MAKEINTRESOURCE(IDB_BUTTON_EXIT_GREY), IMAGE_BITMAP, SWITCHBLADE_DYNAMIC_KEY_X_SIZE, SWITCHBLADE_DYNAMIC_KEY_Y_SIZE, LR_DEFAULTCOLOR);
+			hbutton_playlist = (HBITMAP)LoadImage(GetModuleHandle(NULL), MAKEINTRESOURCE(IDB_BUTTON_PLAYLIST_GREY), IMAGE_BITMAP, SWITCHBLADE_DYNAMIC_KEY_X_SIZE, SWITCHBLADE_DYNAMIC_KEY_Y_SIZE, LR_DEFAULTCOLOR);
+			hcontrols_pause = (HBITMAP)LoadImage(GetModuleHandle(NULL), MAKEINTRESOURCE(IDB_CONTROLS_PAUSE_GREY), IMAGE_BITMAP, SWITCHBLADE_TOUCHPAD_X_SIZE, SWITCHBLADE_TOUCHPAD_Y_SIZE, LR_DEFAULTCOLOR);
+			hcontrols_play = (HBITMAP)LoadImage(GetModuleHandle(NULL), MAKEINTRESOURCE(IDB_CONTROLS_PLAY_GREY), IMAGE_BITMAP, SWITCHBLADE_TOUCHPAD_X_SIZE, SWITCHBLADE_TOUCHPAD_Y_SIZE, LR_DEFAULTCOLOR);
+		break;
+		case SB_THEME_DSTALKER:
+			hbutton_controls = (HBITMAP)LoadImage(GetModuleHandle(NULL), MAKEINTRESOURCE(IDB_BUTTON_CONTROLS_GREEN), IMAGE_BITMAP, SWITCHBLADE_DYNAMIC_KEY_X_SIZE, SWITCHBLADE_DYNAMIC_KEY_Y_SIZE, LR_DEFAULTCOLOR);
+			hbutton_exit = (HBITMAP)LoadImage(GetModuleHandle(NULL), MAKEINTRESOURCE(IDB_BUTTON_EXIT_GREEN), IMAGE_BITMAP, SWITCHBLADE_DYNAMIC_KEY_X_SIZE, SWITCHBLADE_DYNAMIC_KEY_Y_SIZE, LR_DEFAULTCOLOR);
+			hbutton_playlist = (HBITMAP)LoadImage(GetModuleHandle(NULL), MAKEINTRESOURCE(IDB_BUTTON_PLAYLIST_GREEN), IMAGE_BITMAP, SWITCHBLADE_DYNAMIC_KEY_X_SIZE, SWITCHBLADE_DYNAMIC_KEY_Y_SIZE, LR_DEFAULTCOLOR);
+			hcontrols_pause = (HBITMAP)LoadImage(GetModuleHandle(NULL), MAKEINTRESOURCE(IDB_CONTROLS_PAUSE_GREEN), IMAGE_BITMAP, SWITCHBLADE_TOUCHPAD_X_SIZE, SWITCHBLADE_TOUCHPAD_Y_SIZE, LR_DEFAULTCOLOR);
+			hcontrols_play = (HBITMAP)LoadImage(GetModuleHandle(NULL), MAKEINTRESOURCE(IDB_CONTROLS_PLAY_GREEN), IMAGE_BITMAP, SWITCHBLADE_TOUCHPAD_X_SIZE, SWITCHBLADE_TOUCHPAD_Y_SIZE, LR_DEFAULTCOLOR);
+		break;
+		case SB_THEME_SWTOR:
+			hbutton_controls = (HBITMAP)LoadImage(GetModuleHandle(NULL), MAKEINTRESOURCE(IDB_BUTTON_CONTROLS_GOLD), IMAGE_BITMAP, SWITCHBLADE_DYNAMIC_KEY_X_SIZE, SWITCHBLADE_DYNAMIC_KEY_Y_SIZE, LR_DEFAULTCOLOR);
+			hbutton_exit = (HBITMAP)LoadImage(GetModuleHandle(NULL), MAKEINTRESOURCE(IDB_BUTTON_EXIT_GOLD), IMAGE_BITMAP, SWITCHBLADE_DYNAMIC_KEY_X_SIZE, SWITCHBLADE_DYNAMIC_KEY_Y_SIZE, LR_DEFAULTCOLOR);
+			hbutton_playlist = (HBITMAP)LoadImage(GetModuleHandle(NULL), MAKEINTRESOURCE(IDB_BUTTON_PLAYLIST_GOLD), IMAGE_BITMAP, SWITCHBLADE_DYNAMIC_KEY_X_SIZE, SWITCHBLADE_DYNAMIC_KEY_Y_SIZE, LR_DEFAULTCOLOR);
+			hcontrols_pause = (HBITMAP)LoadImage(GetModuleHandle(NULL), MAKEINTRESOURCE(IDB_CONTROLS_PAUSE_GOLD), IMAGE_BITMAP, SWITCHBLADE_TOUCHPAD_X_SIZE, SWITCHBLADE_TOUCHPAD_Y_SIZE, LR_DEFAULTCOLOR);
+			hcontrols_play = (HBITMAP)LoadImage(GetModuleHandle(NULL), MAKEINTRESOURCE(IDB_CONTROLS_PLAY_GOLD), IMAGE_BITMAP, SWITCHBLADE_TOUCHPAD_X_SIZE, SWITCHBLADE_TOUCHPAD_Y_SIZE, LR_DEFAULTCOLOR);
+		break;
+		default:
+			hbutton_controls = (HBITMAP)LoadImage(GetModuleHandle(NULL), MAKEINTRESOURCE(IDB_BUTTON_CONTROLS_GREY), IMAGE_BITMAP, SWITCHBLADE_DYNAMIC_KEY_X_SIZE, SWITCHBLADE_DYNAMIC_KEY_Y_SIZE, LR_DEFAULTCOLOR);
+			hbutton_exit = (HBITMAP)LoadImage(GetModuleHandle(NULL), MAKEINTRESOURCE(IDB_BUTTON_EXIT_GREY), IMAGE_BITMAP, SWITCHBLADE_DYNAMIC_KEY_X_SIZE, SWITCHBLADE_DYNAMIC_KEY_Y_SIZE, LR_DEFAULTCOLOR);
+			hbutton_playlist = (HBITMAP)LoadImage(GetModuleHandle(NULL), MAKEINTRESOURCE(IDB_BUTTON_PLAYLIST_GREY), IMAGE_BITMAP, SWITCHBLADE_DYNAMIC_KEY_X_SIZE, SWITCHBLADE_DYNAMIC_KEY_Y_SIZE, LR_DEFAULTCOLOR);
+			hcontrols_pause = (HBITMAP)LoadImage(GetModuleHandle(NULL), MAKEINTRESOURCE(IDB_CONTROLS_PAUSE_GREY), IMAGE_BITMAP, SWITCHBLADE_TOUCHPAD_X_SIZE, SWITCHBLADE_TOUCHPAD_Y_SIZE, LR_DEFAULTCOLOR);
+			hcontrols_play = (HBITMAP)LoadImage(GetModuleHandle(NULL), MAKEINTRESOURCE(IDB_CONTROLS_PLAY_GREY), IMAGE_BITMAP, SWITCHBLADE_TOUCHPAD_X_SIZE, SWITCHBLADE_TOUCHPAD_Y_SIZE, LR_DEFAULTCOLOR);
+		break;
+	}
 	AppIcon = (HICON)LoadImage(GetModuleHandle(NULL), MAKEINTRESOURCE(IDI_APPICON), IMAGE_ICON, GetSystemMetrics(SM_CXICON), GetSystemMetrics(SM_CYICON), LR_DEFAULTCOLOR);
 	AppIconSM = (HICON)LoadImage(GetModuleHandle(NULL), MAKEINTRESOURCE(IDI_APPICON), IMAGE_ICON, GetSystemMetrics(SM_CXSMICON), GetSystemMetrics(SM_CYSMICON), LR_DEFAULTCOLOR);
-	hbutton_controls = (HBITMAP)LoadImage(GetModuleHandle(NULL), MAKEINTRESOURCE(IDB_BUTTON_CONTROLS_GOLD), IMAGE_BITMAP, SWITCHBLADE_DYNAMIC_KEY_X_SIZE, SWITCHBLADE_DYNAMIC_KEY_Y_SIZE, LR_DEFAULTCOLOR);
-	hbutton_exit = (HBITMAP)LoadImage(GetModuleHandle(NULL), MAKEINTRESOURCE(IDB_BUTTON_EXIT_GOLD), IMAGE_BITMAP, SWITCHBLADE_DYNAMIC_KEY_X_SIZE, SWITCHBLADE_DYNAMIC_KEY_Y_SIZE, LR_DEFAULTCOLOR);
-	hbutton_playlist = (HBITMAP)LoadImage(GetModuleHandle(NULL), MAKEINTRESOURCE(IDB_BUTTON_PLAYLIST_GOLD), IMAGE_BITMAP, SWITCHBLADE_DYNAMIC_KEY_X_SIZE, SWITCHBLADE_DYNAMIC_KEY_Y_SIZE, LR_DEFAULTCOLOR);
-	hcontrols_pause = (HBITMAP)LoadImage(GetModuleHandle(NULL), MAKEINTRESOURCE(IDB_CONTROLS_PAUSE_GOLD), IMAGE_BITMAP, SWITCHBLADE_TOUCHPAD_X_SIZE, SWITCHBLADE_TOUCHPAD_Y_SIZE, LR_DEFAULTCOLOR);
-	hcontrols_play = (HBITMAP)LoadImage(GetModuleHandle(NULL), MAKEINTRESOURCE(IDB_CONTROLS_PLAY_GOLD), IMAGE_BITMAP, SWITCHBLADE_TOUCHPAD_X_SIZE, SWITCHBLADE_TOUCHPAD_Y_SIZE, LR_DEFAULTCOLOR);
 	return retval;
 }
 
-HRESULT cleanUp() {
-	HRESULT  retval = S_OK;
-	DeleteObject(hbutton_controls);
-	DeleteObject(hbutton_exit);
-	DeleteObject(hbutton_playlist);
-	DeleteObject(hcontrols_pause);
-	DeleteObject(hcontrols_play);
-	DestroyIcon(AppIcon);
-	DestroyIcon(AppIconSM);
+unsigned short __inline ARGB2RGB565(int x)
+{
+	unsigned short r = (unsigned short)((x & 0x00F80000) >> 8);
+	unsigned short g = (unsigned short)((x & 0x0000FC00) >> 5);
+	unsigned short b = (unsigned short)((x & 0x000000F8) >> 3);
+	unsigned short rgb565 = 0;
+
+	rgb565 = r | g | b;
+
+	return rgb565;
+}
+
+HRESULT drawSBImage(RZSBSDK_DISPLAY sbui_display_handle, HBITMAP buttonimage, RZSBSDK_BUFFERPARAMS sbuidisplay)
+{
+	HRESULT retval = S_OK;
+	unsigned short* rgb565buffer;
+	DWORD* rgb888buffer;
+	unsigned int in, out;
+	unsigned short output_x, output_y;
+	BITMAPINFO bitmap_cfg;
+	size_t targetDisplaySize;
+	HDC resbitmapDC = NULL;
+	in = 0;
+	out = 0;
+	/* set target memory buffer size, target rows and lines depending on desired output display */
+	if (sbui_display_handle == RZSBSDK_DISPLAY_WIDGET)
+	{
+		targetDisplaySize = SWITCHBLADE_TOUCHPAD_SIZE_IMAGEDATA;
+		output_x = SWITCHBLADE_TOUCHPAD_X_SIZE;
+		output_y = SWITCHBLADE_TOUCHPAD_Y_SIZE;
+	}
+	else										// assume we draw on a dynamic key if not main widged is specified
+	{
+		targetDisplaySize = SWITCHBLADE_DK_SIZE_IMAGEDATA;
+		output_x = SWITCHBLADE_DYNAMIC_KEY_X_SIZE;
+		output_y = SWITCHBLADE_DYNAMIC_KEY_Y_SIZE;
+	}
+	resbitmapDC = CreateCompatibleDC(NULL);
+	memset(&bitmap_cfg, 0, sizeof(BITMAPINFO));
+	/* allocate the converted rgb565 image to hold the pixels to be outputted to screen */
+	rgb565buffer = (unsigned short*)malloc(targetDisplaySize);
+	/* prepare the output structure to draw on the SBUI interface*/
+	memset(&sbuidisplay, 0, sizeof(RZSBSDK_BUFFERPARAMS));
+	sbuidisplay.PixelType = RGB565;
+	sbuidisplay.DataSize = targetDisplaySize;
+	sbuidisplay.pData = (BYTE*)rgb565buffer;	
+	/* retrieve bitmap header, set for RGB conversion as bitmaps are 8 bit color palette */
+	bitmap_cfg.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+	retval = GetDIBits(resbitmapDC, buttonimage, 0, output_y, NULL, &bitmap_cfg, DIB_RGB_COLORS);
+	bitmap_cfg.bmiHeader.biCompression = BI_RGB;// sonst steht da 3L drinnen und dann wird beim 2. Aufruf aufgrund BI_BITFILES drinnens tehen hat schreibt er bitmaske in COLORQUAD feld dahinter - ist aber nur fuer 1 bitmaske platz [1] in definition - muesste dann mehr sein, brauchen wir ja nicht
+	/* init RGB88 Buffer to hold image pixels from HBITMAP structure*/
+	rgb888buffer = (DWORD*)_aligned_malloc(bitmap_cfg.bmiHeader.biSizeImage, 4);
+	/* remove striding image is padded with black pixels only for dynamic key images (uneven rows in image) */
+	if (sbui_display_handle == RZSBSDK_DISPLAY_WIDGET) {
+		retval = GetDIBits(resbitmapDC, buttonimage, 0, output_y, rgb888buffer, &bitmap_cfg, DIB_RGB_COLORS);
+		for (short row = 0; row < output_y; row++)
+		{
+			for (short col = 0; col < output_x; col++)
+			{	
+				rgb565buffer[out] = ARGB2RGB565(rgb888buffer[in]);
+				out = out + 1;
+				in = in + 1;
+			}
+		}
+	}
+	else {										// assume dynamic key rendering, remove padding to prevent image striding
+		/* get the image */
+		retval = GetDIBits(resbitmapDC, buttonimage, 0, output_y, rgb888buffer, &bitmap_cfg, DIB_RGB_COLORS);
+		for (short row = 0; row < output_y; row++)
+		{
+			for (short col = 0; col < output_x; col++)
+			{
+				if (col == 0 && row != 0)		// remove padding to prevent image striding
+					in--;
+				rgb565buffer[out] = ARGB2RGB565(rgb888buffer[in]);
+				out = out + 1;
+				in = in + 1;
+			}
+		}
+	}
+
+	/* Draw the Image */
+	RzSBRenderBuffer(sbui_display_handle, &sbuidisplay);
+	/* clean up */
+	_aligned_free(rgb888buffer);
+	free(rgb565buffer);
 	return retval;
 }
+
 
 HRESULT initSwitchbladeControls() {				// paint common user interface
 	HRESULT retval = S_OK;
-	// BYTE* h_resbuffer;
-	// HDC resbitmapDC;
-	LONG test;
-	// resbitmapDC = NULL;
+
 	preloadResources();							// preload image handles depending upon selected sbui theme
+	/* set up the buttons for the control and playlist interface as well as an exit button */
+	/* set touchscreen coordinates of last top to zero */
 	old_x = 0;
 	old_y = 0;
-	/* set up the buttons for the control and playlist interface as well as an exit button */
-	/* allocate buffer memory */
-	// resbitmapDC = CreateCompatibleDC(NULL);
-	// h_resbuffer = (BYTE*)malloc((SWITCHBLADE_DYNAMIC_KEY_X_SIZE *32 + 31) / 32 * 4* SWITCHBLADE_DYNAMIC_KEY_Y_SIZE);
-	// SelectObject(resbitmapDC, hbutton_controls);
-		
-	
-	
-	
-	
-	/* paint exit button - Code not working! - we overload with RzSBSetImageDynamicKey */
-	//BitBlt(copyImageDC, 0, 0, SWITCHBLADE_DYNAMIC_KEY_X_SIZE, SWITCHBLADE_DYNAMIC_KEY_Y_SIZE, resbitmapDC, 0, 0, DSTINVERT);
-	memset(&sbuidisplay, 0, sizeof(RZSBSDK_BUFFERPARAMS));
-	sbuidisplay.PixelType = RGB565;
-	sbuidisplay.DataSize = SWITCHBLADE_DK_SIZE_IMAGEDATA;
-	sbuidisplay.pData = (BYTE*)malloc(SWITCHBLADE_DK_SIZE_IMAGEDATA);
-	memset(sbuidisplay.pData, 0, sizeof(SWITCHBLADE_DK_SIZE_IMAGEDATA));
-	test = GetBitmapBits(hbutton_exit, sbuidisplay.DataSize, sbuidisplay.pData);
-	
-	RzSBRenderBuffer(RZSBSDK_DISPLAY_DK_5, &sbuidisplay);
-
-
+	/* paint exit button */
+	drawSBImage(RZSBSDK_DISPLAY_DK_5, hbutton_exit, sbuidisplay);
 	/* paint playlist button */
+	drawSBImage(RZSBSDK_DISPLAY_DK_7, hbutton_playlist, sbuidisplay);
 	/* paint music controls button */
-
-	retval = RzSBSetImageDynamicKey(RZSBSDK_DK_5, RZSBSDK_KEYSTATE_UP, image_button_exit);
-	retval = RzSBSetImageDynamicKey(RZSBSDK_DK_6, RZSBSDK_KEYSTATE_UP, image_button_controls);
-	retval = RzSBSetImageDynamicKey(RZSBSDK_DK_7, RZSBSDK_KEYSTATE_UP, image_button_list);
+	drawSBImage(RZSBSDK_DISPLAY_DK_6, hbutton_controls, sbuidisplay);
 	/* disable handing over touchpad gestures to OS - disables "mouse" functionality */
 	retval = RzSBEnableOSGesture(RZSBSDK_GESTURE_ALL, false);
 	/* register callback function to handle touch input to application */
@@ -528,6 +644,7 @@ HRESULT initSwitchbladeControls() {				// paint common user interface
 	retval = RzSBDynamicKeySetCallback(reinterpret_cast<DynamicKeyCallbackFunctionType>(DynamicKeyHandler));
 	/* register callback function to handle application lifecycle events */
 	retval = RzSBAppEventSetCallback(reinterpret_cast<AppEventCallbackType>(AppEventHandler));
+
 	return retval;
 }
 
@@ -537,19 +654,17 @@ HRESULT setAppState(short appstate) {
 	case APPSTATE_STARTUP:
 		applicationstate = APPSTATE_STARTUP;
 		initSwitchbladeControls();			// paint button interface
-		showiTunesControlInterface();		// paint interface for iTunes controls
 		refreshiTunesPlayList();			// get songlists from iTunes
+		showiTunesControlInterface();		// paint interface for iTunes controls
 		break;
 	case APPSTATE_CONTROLS_PLAY:
 		applicationstate = APPSTATE_CONTROLS_PLAY;
-		// showiTunesControlInterface();
-		retval = RzSBSetImageTouchpad(image_play_controls);
+		retval = drawSBImage(RZSBSDK_DISPLAY_WIDGET, hcontrols_play, sbuidisplay);
 		retval = RzSBGestureSetCallback(reinterpret_cast<TouchpadGestureCallbackFunctionType>(TouchPadHandler_Controls));
 		break;
 	case APPSTATE_CONTROLS_PAUSE:
 		applicationstate = APPSTATE_CONTROLS_PAUSE;
-		// showiTunesControlInterface();
-		retval = RzSBSetImageTouchpad(image_pause_controls);
+		retval = drawSBImage(RZSBSDK_DISPLAY_WIDGET, hcontrols_pause, sbuidisplay);
 		retval = RzSBGestureSetCallback(reinterpret_cast<TouchpadGestureCallbackFunctionType>(TouchPadHandler_Controls));
 		break;
 	case APPSTATE_PLAYLIST_START:
@@ -673,29 +788,31 @@ HRESULT STDMETHODCALLTYPE TouchPadHandler_Controls(RZSBSDK_GESTURETYPE gesturety
 
 HRESULT STDMETHODCALLTYPE TouchPadHandler_Playlist(RZSBSDK_GESTURETYPE gesturetype, DWORD touchpoints, WORD x, WORD y, WORD z) {
 	HRESULT retval = S_OK;
-	switch (gesturetype) {
-	case RZSBSDK_GESTURE_FLICK:
-		continue_scrolling = false;				// stop scrolling upon pad press
-		CreateThread(NULL, 0, flickTimer, NULL, 0, NULL);
-		retval = padFlick(z);					// call scrolling function
-		break;
-	case RZSBSDK_GESTURE_PRESS:
-		continue_scrolling = false;				// stop scrolling upon pad press
-		storeLastUITapCoord(x, y);
-		break;
-	case RZSBSDK_GESTURE_MOVE:
-		continue_scrolling = false;				// stop scrolling upon pad press
-		if (!flick_in_progress)					// do not interpret move gesture while flicking
-			retval = padMove(y);
-		storeLastUITapCoord(x, y);
-		break;
-	case RZSBSDK_GESTURE_TAP:					// play song upon tapping on it
-		continue_scrolling = false;				// stop scrolling upon pad press
-		if (!flick_in_progress)					// stop scrolling on pad press, but do not select song for playback
-			retval = play_song_on_playlist(selected_playlist, y);
-		break;
-	default:
-		break;
+	if (ValidGesture(gesturetype)) {
+		switch (gesturetype) {
+		case RZSBSDK_GESTURE_FLICK:
+			continue_scrolling = false;			// stop scrolling upon pad press
+			scrollimmunitytimerthread = CreateThread(NULL, 0, flickTimer, NULL, 0, NULL);
+			retval = padFlick(z);				// call scrolling function
+			break;
+		case RZSBSDK_GESTURE_PRESS:
+			continue_scrolling = false;			// stop scrolling upon pad press
+			storeLastUITapCoord(x, y);
+			break;
+		case RZSBSDK_GESTURE_MOVE:
+			continue_scrolling = false;			// stop scrolling upon pad press
+			if (!flick_in_progress && SingleGesture(gesturetype))				// do not interpret move gesture while flicking
+				retval = padMove(y);
+			storeLastUITapCoord(x, y);
+			break;
+		case RZSBSDK_GESTURE_TAP:				// play song upon tapping on it
+			continue_scrolling = false;			// stop scrolling upon pad press
+			if (!flick_in_progress)				// stop scrolling on pad press, but do not select song for playback
+				retval = play_song_on_playlist(selected_playlist, y);
+			break;
+		default:
+			break;
+		}
 	}
 	return retval;
 }
@@ -707,8 +824,16 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
 {
 	HRESULT hRes;
 	MSG msg;
-
+	/* check for theme argument switch when called from Razer Switchblade System */
+	/* default theme is the grey blade theme */
+	hwtheme = SB_THEME_SWTOR;
+	if (wcsstr(lpCmdLine, L"-skin:Blade") != NULL)
+		hwtheme = SB_THEME_SWTOR;
+	if (wcsstr(lpCmdLine, L"-skin:DeathStalker") != NULL)
+		hwtheme = SB_THEME_DSTALKER;
 	hRes = S_OK;
+	o_h_pixbuf = NULL;
+	moving = false;
 	hRes = connectiTunes();
 	Sleep(5);
 	if (hRes == S_OK) {
