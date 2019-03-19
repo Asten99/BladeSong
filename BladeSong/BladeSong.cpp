@@ -1,12 +1,10 @@
 #include "BladeSong.h"
 
-/*todo bladesong:
+/*todo:
 
--) auswaehlen von liedern ist noch sehr zufaellig
--) ueberschrift bei playlists
--) lautstaerkeregelungs-fenster und knopf
--) songtitel scrollt in control fenster hin/her
--) control fenster huebscher machen
+-) add an additional window with volume control
+-) playlist control also displays the current song title, scrolling with long titles
+-) make ui look better
 */
 
 HRESULT connectiTunes() {
@@ -18,14 +16,26 @@ HRESULT connectiTunes() {
 
 HRESULT disconnectiTunes() {
 	continue_scrolling = false;
-	/* not freed:
+	/* not freed - memory leak! - fixed, see below:
 		allSongs[*playlistno]->tracks = (trackData **)malloc(num_songs_per_playlist * sizeof(trackData));
 		allSongs[*playlistno]->tracks[j] = (trackData *)malloc(sizeof(trackData));
 	*/
+
+	for (long i = 0; i < num_playlists; i = i + 1) {
+		TerminateThread(threadlist_getplaylists[i], S_OK);
+		if (allSongs[i] != NULL)
+			for (long j = 0; j < allSongs[i]->membercount; j = j + 1)
+				if (allSongs[i]->tracks[j] != NULL)
+					free(allSongs[i]->tracks[j]);
+		free(allSongs[i]->tracks);
+		free(allSongs[i]);
+	}
+	/* no longer needed: (see above)
 	for (long i = 0; i < num_playlists; i = i + 1) {
 		TerminateThread(threadlist_getplaylists[i], S_OK);
 		free(allSongs[i]);
 	}
+	*/
 	free(threadlist_getplaylists);
 	TerminateThread(scrollthread, S_OK);
 	TerminateThread(scrollimmunitytimerthread, S_OK);
@@ -134,6 +144,8 @@ HRESULT getPlaylists_iTunes(IiTunes* iITunes) {
 		return errCode;
 	allSongs = (playlistData **)malloc(num_playlists * sizeof(playlistData**));
 	threadlist_getplaylists = (HANDLE *)malloc(num_playlists * sizeof(HANDLE));
+	for (long i = 0; i < num_playlists; i = i + 1)
+		allSongs[i] = NULL;						// preInit in case User quits early
 	for (long i = 0; i < num_playlists; i = i + 1) {
 		allSongs[i] = (playlistData *)malloc(sizeof(playlistData));
 		allSongs[i]->internalID = i;
@@ -201,6 +213,8 @@ DWORD WINAPI getiTunesPlaylist(LPVOID pData) {
 	allSongs[*playlistno]->SourceID = workingSourceID;
 	allSongs[*playlistno]->tracks = (trackData **)malloc(num_songs_per_playlist * sizeof(trackData));
 	allSongs[*playlistno]->loadState = PL_STATE_LOADING;
+	for (long j = 0; j < num_songs_per_playlist; j = j + 1)
+		allSongs[*playlistno]->tracks[j] = NULL;// preInit in case User quits early
 	for (long j = 0; j < num_songs_per_playlist; j = j + 1) {
 		/* enumerate all tracks of this playlist, put it in allsongs[i]->tracks */
 		errCode = workingTracks->get_Item(j + 1, &workingTrack);
@@ -473,14 +487,14 @@ HRESULT play_song_on_playlist(long playlist, WORD y_coordinates) {
 	double true_y = (double)scroll_offset + (double)y_coordinates / (double)1.98;
 	if (true_y >= 0) {
 		if (selected_playlist == 0) {
-			selection = round((true_y / (double)(fontsize + spacing))) -2;
+			selection = (long)round((true_y / (double)(fontsize + spacing))) -2;
 			if (selection < 0)
 				selection = 0;
 			selected_playlist = (short)selection;
 			setAppState(APPSTATE_PLAYLIST);
 		}
 		else {
-			selection = round( true_y / (double)(fontsize + spacing) )-2;
+			selection = (long)round( true_y / (double)(fontsize + spacing) )-2;
 			if (selection < 0)
 				selection = 0;
 			myITunes->AddRef();
@@ -799,12 +813,12 @@ HRESULT STDMETHODCALLTYPE TouchPadHandler_Playlist(RZSBSDK_GESTURETYPE gesturety
 			continue_scrolling = false;			// stop scrolling upon pad press
 			storeLastUITapCoord(x, y);
 			break;
-		case RZSBSDK_GESTURE_MOVE:
+/*		case RZSBSDK_GESTURE_MOVE:
 			continue_scrolling = false;			// stop scrolling upon pad press
-			if (!flick_in_progress && SingleGesture(gesturetype))				// do not interpret move gesture while flicking
-				retval = padMove(y);
+			if (!flick_in_progress && SingleGesture(gesturetype))
+				retval = padMove(y);			// do not interpret move gesture while flicking
 			storeLastUITapCoord(x, y);
-			break;
+			break; */
 		case RZSBSDK_GESTURE_TAP:				// play song upon tapping on it
 			continue_scrolling = false;			// stop scrolling upon pad press
 			if (!flick_in_progress)				// stop scrolling on pad press, but do not select song for playback
