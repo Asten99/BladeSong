@@ -1,3 +1,48 @@
+/*
+ * Copyright (c) 1982, 1986, 1990, 1991, 1993
+ *	The Regents of the University of California.  All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions
+ * are met:
+ * 1. Redistributions of source code must retain the above copyright
+ *    notice, this list of conditions and the following disclaimer.
+ * 2. Redistributions in binary form must reproduce the above copyright
+ *    notice, this list of conditions and the following disclaimer in the
+ *    documentation and/or other materials provided with the distribution.
+ * 3. All advertising materials mentioning features or use of this software
+ *    must display the following acknowledgement:
+ *	This product includes software developed by the University of
+ *	California, Berkeley and its contributors.
+ * 4. Neither the name of the University nor the names of its contributors
+ *    may be used to endorse or promote products derived from this software
+ *    without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE REGENTS AND CONTRIBUTORS ``AS IS'' AND
+ * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ * ARE DISCLAIMED.  IN NO EVENT SHALL THE REGENTS OR CONTRIBUTORS BE LIABLE
+ * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+ * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+ * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+ * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+ * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+ * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+ * SUCH DAMAGE.
+ *
+ * This software was written by Christian Fuchs (christian_fuchs@me.com)
+ * and is being distributed under the BSD license. Please note that the
+ * used libraries (Razer switchblade SDK and Apple iTunes COM interface
+ * have their own licenses and thus cannot be distributed in the source
+ * package of this product.
+ *
+ * Many thanks to my dear friend who helped me understand C image functions
+ * when I was totally lost and a very gentle being at Razer who supplied
+ * me with the SDK when it was no longer in support. Without you all this
+ * would never have been possible! Thank you!!
+ *
+ */
+
 #include "BladeSong.h"
 
 /*todo:
@@ -16,11 +61,6 @@ HRESULT connectiTunes() {
 
 HRESULT disconnectiTunes() {
 	continue_scrolling = false;
-	/* not freed - memory leak! - fixed, see below:
-		allSongs[*playlistno]->tracks = (trackData **)malloc(num_songs_per_playlist * sizeof(trackData));
-		allSongs[*playlistno]->tracks[j] = (trackData *)malloc(sizeof(trackData));
-	*/
-
 	for (long i = 0; i < num_playlists; i = i + 1) {
 		TerminateThread(threadlist_getplaylists[i], S_OK);
 		if (allSongs[i] != NULL)
@@ -30,12 +70,6 @@ HRESULT disconnectiTunes() {
 		free(allSongs[i]->tracks);
 		free(allSongs[i]);
 	}
-	/* no longer needed: (see above)
-	for (long i = 0; i < num_playlists; i = i + 1) {
-		TerminateThread(threadlist_getplaylists[i], S_OK);
-		free(allSongs[i]);
-	}
-	*/
 	free(threadlist_getplaylists);
 	TerminateThread(scrollthread, S_OK);
 	TerminateThread(scrollimmunitytimerthread, S_OK);
@@ -177,7 +211,6 @@ DWORD WINAPI getiTunesPlaylist(LPVOID pData) {
 	workingtrackDatabaseID = 0;
 	workingSourceID = 0;
 	errCode = S_OK;
-	// allSongs[*playlistno] = (playlistData *)malloc(sizeof(playlistData));
 	allSongs[*playlistno]->loadState = PL_STATE_NOT_LOADED;
 	/* Traverste the iTunes COM object to get to our desired playlist */
 	errCode = myITunes->get_LibrarySource(&iTunesLibrary);
@@ -284,7 +317,7 @@ HRESULT drawPlaylistOffscreen(short playlist) { // playlist 0 = list of playlist
 		// select offscreen image into device context
 		SelectObject(hdcOffscreenDC, h_offscreen);
 		SetTextColor(hdcOffscreenDC, transl_RGB565(212, 175, 55));
-		hFont = CreateFont(fontsize, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_OUTLINE_PRECIS, CLIP_DEFAULT_PRECIS, ANTIALIASED_QUALITY, DEFAULT_PITCH, TEXT("razer regular"));
+		hFont = CreateFont(fontsize, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_OUTLINE_PRECIS, CLIP_DEFAULT_PRECIS, ANTIALIASED_QUALITY, DEFAULT_PITCH, TEXT("Courier New"));
 		SelectObject(hdcOffscreenDC, hFont);
 		SetBkColor(hdcOffscreenDC, transl_RGB565(0, 0, 0));
 		if (playlist == 0) {					// copy only names of playlists
@@ -401,13 +434,10 @@ HRESULT padMove(WORD new_y) {					// as a result of moving the finger on the UI 
 		to_scroll = (short)new_y - (short)old_y;
 		short scroll_increment = 8;
 		short scrolled = 0;
-		if ((new_y - old_y) < 0) {
+		if ((new_y - old_y) < 0) {				// / (o_image_lines - SWITCHBLADE_TOUCHPAD_Y_SIZE / 3) clause stems from some weird scaling factor of the Switchblade display i do not understand
 			if ((scroll_offset + scroll_increment) <= (o_image_lines - SWITCHBLADE_TOUCHPAD_Y_SIZE/3)) {
 				scroll_offset += scroll_increment;
 				renderplaylistUI();
-//				wchar_t debugbuf[512];
-//				wsprintf(debugbuf, L"\nscroll_increment: %d\nscroll_offset: %d\no_image_lines: %d\n", scroll_increment, scroll_offset, o_image_lines);
-//				OutputDebugStringW(debugbuf);
 				Sleep(1);
 			}
 		}
@@ -415,9 +445,6 @@ HRESULT padMove(WORD new_y) {					// as a result of moving the finger on the UI 
 			if ((scroll_offset - scroll_increment) >= 0) {
 				scroll_offset -= scroll_increment;
 				renderplaylistUI();
-//				wchar_t debugbuf[512];
-//				wsprintf(debugbuf, L"\nscroll_increment: %d\nscroll_offset: %d\no_image_lines: %d\n", scroll_increment, scroll_offset, o_image_lines);
-//				OutputDebugStringW(debugbuf);
 				Sleep(1);
 			}
 		}
@@ -454,7 +481,8 @@ DWORD WINAPI scrollUI(LPVOID pData) {
 	switch (*direction) {						// decide in which direction to scroll
 	case RZSBSDK_DIRECTION_UP:					// only scroll down to the end of the list
 		continue_scrolling = true;				// we now will start scrolling till we run out of momentum (scrolllength) - this flag is used to signal us to stop scrolling early
-		while (((scroll_offset + scroll_increment) <= (offscreen_imagelength - SBUI_length)) && ((scrolled + scroll_increment) <= scrolllength) && continue_scrolling) {
+		/* the (o_image_lines - SWITCHBLADE_TOUCHPAD_Y_SIZE / 3) stems from some weird scaling factor of the Switchblade display i do not understand */
+		while (((scroll_offset + scroll_increment) <= (o_image_lines - SWITCHBLADE_TOUCHPAD_Y_SIZE / 3)) && ((scrolled + scroll_increment) <= scrolllength) && continue_scrolling) {
 			scroll_offset = scroll_offset + (long)scroll_increment;
 			scrolled = scrolled + (short)scroll_increment;
 			/* scroll slower at the end of the scroll - scale the scrolling speed/scroll increments - scrolled should at this point never be 0 */
@@ -813,12 +841,15 @@ HRESULT STDMETHODCALLTYPE TouchPadHandler_Playlist(RZSBSDK_GESTURETYPE gesturety
 			continue_scrolling = false;			// stop scrolling upon pad press
 			storeLastUITapCoord(x, y);
 			break;
-/*		case RZSBSDK_GESTURE_MOVE:
+/* As long as we do not have a good solutiuon to distinguis between the user moving his finger on the touchscreen and flicking the finger,
+this stays commented out: 
+		case RZSBSDK_GESTURE_MOVE:
 			continue_scrolling = false;			// stop scrolling upon pad press
 			if (!flick_in_progress && SingleGesture(gesturetype))
 				retval = padMove(y);			// do not interpret move gesture while flicking
 			storeLastUITapCoord(x, y);
-			break; */
+			break;
+*/
 		case RZSBSDK_GESTURE_TAP:				// play song upon tapping on it
 			continue_scrolling = false;			// stop scrolling upon pad press
 			if (!flick_in_progress)				// stop scrolling on pad press, but do not select song for playback

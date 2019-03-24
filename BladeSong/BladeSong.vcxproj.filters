@@ -85,4 +85,7 @@
       <Filter>Ressourcendateien</Filter>
     </Image>
   </ItemGroup>
+  <ItemGroup>
+    <Text Include="BladeSong.txt" />
+  </ItemGroup>
 </Project>
